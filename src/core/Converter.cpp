@@ -103,14 +103,12 @@ static void WriteEvent(std::ofstream& out, const trc::RawEvent& e) {
     }
     if (type == trc::EventType::KeyDown) {
         const bool ext = (e.data & LLKHF_EXTENDED) != 0;
-        if (e.y != 0) out << "key_down(" << e.y << "," << (ext ? 1 : 0) << ")\n";
-        else out << "vk_down(" << e.x << "," << (ext ? 1 : 0) << ")\n";
+        out << "vk_down(" << e.x << "," << (ext ? 1 : 0) << ")\n";
         return;
     }
     if (type == trc::EventType::KeyUp) {
         const bool ext = (e.data & LLKHF_EXTENDED) != 0;
-        if (e.y != 0) out << "key_up(" << e.y << "," << (ext ? 1 : 0) << ")\n";
-        else out << "vk_up(" << e.x << "," << (ext ? 1 : 0) << ")\n";
+        out << "vk_up(" << e.x << "," << (ext ? 1 : 0) << ")\n";
         return;
     }
 }

@@ -563,6 +563,19 @@ int LuaEngine::L_MouseWheel(lua_State* L) {
 }
 
 static void SendKeyScancode(int scanCode, bool extended, bool down) {
+    const HKL layout = GetKeyboardLayout(0);
+    const UINT vk = MapVirtualKeyExW(static_cast<UINT>(scanCode), MAPVK_VSC_TO_VK_EX, layout);
+    if (vk != 0) {
+        INPUT in{};
+        in.type = INPUT_KEYBOARD;
+        in.ki.wVk = static_cast<WORD>(vk);
+        in.ki.wScan = static_cast<WORD>(scanCode);
+        if (extended) in.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
+        if (!down) in.ki.dwFlags |= KEYEVENTF_KEYUP;
+        SendInput(1, &in, sizeof(in));
+        return;
+    }
+
     INPUT in{};
     in.type = INPUT_KEYBOARD;
     in.ki.wVk = 0;
@@ -571,6 +584,82 @@ static void SendKeyScancode(int scanCode, bool extended, bool down) {
     if (extended) in.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
     if (!down) in.ki.dwFlags |= KEYEVENTF_KEYUP;
     SendInput(1, &in, sizeof(in));
+}
+
+static bool TryParseNamedVk(const char* s, uint32_t* vkOut, bool* extOut) {
+    if (!s || !vkOut) return false;
+    auto eq = [](const char* a, const char* b) { return _stricmp(a, b) == 0; };
+    bool ext = false;
+    uint32_t vk = 0;
+
+    if (eq(s, "enter") || eq(s, "return")) vk = VK_RETURN;
+    else if (eq(s, "tab")) vk = VK_TAB;
+    else if (eq(s, "esc") || eq(s, "escape")) vk = VK_ESCAPE;
+    else if (eq(s, "space")) vk = VK_SPACE;
+    else if (eq(s, "backspace") || eq(s, "bs")) vk = VK_BACK;
+    else if (eq(s, "delete") || eq(s, "del")) vk = VK_DELETE;
+    else if (eq(s, "insert") || eq(s, "ins")) vk = VK_INSERT;
+    else if (eq(s, "home")) vk = VK_HOME, ext = true;
+    else if (eq(s, "end")) vk = VK_END, ext = true;
+    else if (eq(s, "pageup") || eq(s, "pgup")) vk = VK_PRIOR, ext = true;
+    else if (eq(s, "pagedown") || eq(s, "pgdn")) vk = VK_NEXT, ext = true;
+    else if (eq(s, "left")) vk = VK_LEFT, ext = true;
+    else if (eq(s, "right")) vk = VK_RIGHT, ext = true;
+    else if (eq(s, "up")) vk = VK_UP, ext = true;
+    else if (eq(s, "down")) vk = VK_DOWN, ext = true;
+    else return false;
+
+    *vkOut = vk;
+    if (extOut) *extOut = ext;
+    return true;
+}
+
+static bool TryVkFromLuaArg(lua_State* L, int idx, uint32_t* vkOut, uint8_t* modsOut, bool* extOut) {
+    if (!L || !vkOut) return false;
+    if (modsOut) *modsOut = 0;
+    if (extOut) *extOut = false;
+
+    const int t = lua_type(L, idx);
+    if (t == LUA_TNUMBER) {
+        *vkOut = static_cast<uint32_t>(lua_tointeger(L, idx));
+        return true;
+    }
+    if (t != LUA_TSTRING) return false;
+
+    const char* s = lua_tostring(L, idx);
+    if (!s || s[0] == '\0') return false;
+
+    uint32_t namedVk = 0;
+    bool namedExt = false;
+    if (TryParseNamedVk(s, &namedVk, &namedExt)) {
+        *vkOut = namedVk;
+        if (extOut) *extOut = namedExt;
+        return true;
+    }
+
+    const int len = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
+    if (len <= 1) return false;
+    std::wstring w;
+    w.resize(static_cast<size_t>(len));
+    MultiByteToWideChar(CP_UTF8, 0, s, -1, w.data(), len);
+
+    if (w.size() != 2) return false;
+    const wchar_t ch = w[0];
+
+    const SHORT r = VkKeyScanW(ch);
+    if (r == -1) return false;
+    const uint8_t vk = static_cast<uint8_t>(r & 0xFF);
+    const uint8_t state = static_cast<uint8_t>((r >> 8) & 0xFF);
+
+    *vkOut = static_cast<uint32_t>(vk);
+    if (modsOut) *modsOut = static_cast<uint8_t>(state & 0x07);
+    return true;
+}
+
+static void SendVkModifiers(uint8_t mods, bool down) {
+    if (mods & 0x02) SendKeyByScanOrVk(VK_CONTROL, 0, false, down);
+    if (mods & 0x04) SendKeyByScanOrVk(VK_MENU, 0, false, down);
+    if (mods & 0x01) SendKeyByScanOrVk(VK_SHIFT, 0, false, down);
 }
 
 int LuaEngine::L_KeyDown(lua_State* L) {
@@ -588,23 +677,48 @@ int LuaEngine::L_KeyUp(lua_State* L) {
 }
 
 int LuaEngine::L_VkDown(lua_State* L) {
-    const uint32_t vk = static_cast<uint32_t>(luaL_checkinteger(L, 1));
-    const bool ext = lua_gettop(L) >= 2 ? (lua_toboolean(L, 2) != 0) : false;
+    uint32_t vk = 0;
+    bool inferredExt = false;
+    if (!TryVkFromLuaArg(L, 1, &vk, nullptr, &inferredExt)) return 0;
+    const bool ext = lua_gettop(L) >= 2 ? (lua_toboolean(L, 2) != 0) : inferredExt;
     SendKeyByScanOrVk(vk, 0, ext, true);
     return 0;
 }
 
 int LuaEngine::L_VkUp(lua_State* L) {
-    const uint32_t vk = static_cast<uint32_t>(luaL_checkinteger(L, 1));
-    const bool ext = lua_gettop(L) >= 2 ? (lua_toboolean(L, 2) != 0) : false;
+    uint32_t vk = 0;
+    bool inferredExt = false;
+    if (!TryVkFromLuaArg(L, 1, &vk, nullptr, &inferredExt)) return 0;
+    const bool ext = lua_gettop(L) >= 2 ? (lua_toboolean(L, 2) != 0) : inferredExt;
     SendKeyByScanOrVk(vk, 0, ext, false);
     return 0;
 }
 
 int LuaEngine::L_VkPress(lua_State* L) {
-    const uint32_t vk = static_cast<uint32_t>(luaL_checkinteger(L, 1));
+    uint32_t vk = 0;
+    uint8_t mods = 0;
+    bool inferredExt = false;
+    const bool mapped = TryVkFromLuaArg(L, 1, &vk, &mods, &inferredExt);
     const int64_t holdMs = (lua_gettop(L) >= 2) ? static_cast<int64_t>(luaL_checkinteger(L, 2)) : 60;
-    const bool ext = lua_gettop(L) >= 3 ? (lua_toboolean(L, 3) != 0) : false;
+    const bool ext = lua_gettop(L) >= 3 ? (lua_toboolean(L, 3) != 0) : inferredExt;
+
+    if (!mapped) {
+        if (lua_type(L, 1) == LUA_TSTRING) {
+            const char* s = lua_tostring(L, 1);
+            if (s && s[0] != '\0') {
+                const int len = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0);
+                if (len > 1) {
+                    std::wstring w;
+                    w.resize(static_cast<size_t>(len));
+                    MultiByteToWideChar(CP_UTF8, 0, s, -1, w.data(), len);
+                    SendTextUtf16(w.c_str(), static_cast<int>(w.size() - 1));
+                }
+            }
+        }
+        return 0;
+    }
+
+    SendVkModifiers(mods, true);
     SendKeyByScanOrVk(vk, 0, ext, true);
     auto* self = Self(L);
     if (self) {
@@ -614,6 +728,7 @@ int LuaEngine::L_VkPress(lua_State* L) {
         timing::HighPrecisionWaitMicros(std::max<int64_t>(0, holdMs) * 1000);
     }
     SendKeyByScanOrVk(vk, 0, ext, false);
+    SendVkModifiers(mods, false);
     return 0;
 }
 
