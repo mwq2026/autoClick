@@ -1,0 +1,3 @@
+#include "@ACP_RESOURCE_H@"
+
+IDI_APP_ICON ICON "@APP_ICON_PATH@"
