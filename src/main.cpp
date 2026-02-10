@@ -363,9 +363,9 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
     colors[ImGuiCol_ResizeGripActive] = ImVec4(0.20f, 0.56f, 0.86f, 0.95f);
     colors[ImGuiCol_Tab] = ImVec4(0.91f, 0.95f, 0.98f, 0.86f);
     colors[ImGuiCol_TabHovered] = ImVec4(0.20f, 0.56f, 0.86f, 0.80f);
-    colors[ImGuiCol_TabActive] = ImVec4(0.20f, 0.56f, 0.86f, 1.00f);
-    colors[ImGuiCol_TabUnfocused] = ImVec4(0.96f, 0.96f, 0.96f, 0.97f);
-    colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.82f, 0.91f, 0.98f, 1.00f);
+    colors[ImGuiCol_TabSelected] = ImVec4(0.20f, 0.56f, 0.86f, 1.00f);
+    colors[ImGuiCol_TabDimmed] = ImVec4(0.96f, 0.96f, 0.96f, 0.97f);
+    colors[ImGuiCol_TabDimmedSelected] = ImVec4(0.82f, 0.91f, 0.98f, 1.00f);
     colors[ImGuiCol_PlotLines] = ImVec4(0.39f, 0.39f, 0.39f, 1.00f);
     colors[ImGuiCol_PlotLinesHovered] = ImVec4(1.00f, 0.43f, 0.35f, 1.00f);
     colors[ImGuiCol_PlotHistogram] = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
@@ -377,7 +377,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
     colors[ImGuiCol_TableRowBgAlt] = ImVec4(0.30f, 0.30f, 0.35f, 0.09f);
     colors[ImGuiCol_TextSelectedBg] = ImVec4(0.20f, 0.56f, 0.86f, 0.35f);
     colors[ImGuiCol_DragDropTarget] = ImVec4(0.26f, 0.59f, 0.98f, 0.95f);
-    colors[ImGuiCol_NavHighlight] = ImVec4(0.26f, 0.59f, 0.98f, 0.80f);
+    colors[ImGuiCol_NavCursor] = ImVec4(0.26f, 0.59f, 0.98f, 0.80f);
     colors[ImGuiCol_NavWindowingHighlight] = ImVec4(0.70f, 0.70f, 0.70f, 0.70f);
     colors[ImGuiCol_NavWindowingDimBg] = ImVec4(0.20f, 0.20f, 0.20f, 0.20f);
     colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.20f, 0.20f, 0.20f, 0.35f);

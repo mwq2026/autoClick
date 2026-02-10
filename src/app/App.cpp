@@ -70,13 +70,14 @@ static void DrawAppLogo(ImVec2 size) {
     const float r = s * 0.5f;
     const ImVec2 c = ImVec2(p.x + r, p.y + r);
 
-    dl->AddCircleFilled(c, r, IM_COL32(38, 45, 56, 255));
-    dl->AddCircleFilled(c, r * 0.86f, IM_COL32(35, 161, 220, 255));
+    // 浅色主题适配的 Logo
+    dl->AddCircleFilled(c, r, IM_COL32(240, 240, 245, 255));  // 浅灰外圈
+    dl->AddCircleFilled(c, r * 0.86f, IM_COL32(52, 143, 219, 255));  // 蓝色主体
 
     const ImVec2 a = ImVec2(c.x - r * 0.18f, c.y - r * 0.28f);
     const ImVec2 b = ImVec2(c.x - r * 0.18f, c.y + r * 0.28f);
     const ImVec2 d = ImVec2(c.x + r * 0.36f, c.y);
-    dl->AddTriangleFilled(a, b, d, IM_COL32(255, 255, 255, 235));
+    dl->AddTriangleFilled(a, b, d, IM_COL32(255, 255, 255, 245));
 
     ImGui::Dummy(ImVec2(s, s));
 }
@@ -540,10 +541,17 @@ void App::OnHotkey() {
 void App::OnFrame() {
     const float s = UiScale();
     ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 8.0f * s;
-    style.FrameRounding = 6.0f * s;
-    style.GrabRounding = 6.0f * s;
-    style.ScrollbarRounding = 8.0f * s;
+    // 视觉样式微调：更紧凑、更现代
+    style.WindowPadding = ImVec2(10.0f * s, 10.0f * s);
+    style.FramePadding = ImVec2(5.0f * s, 3.0f * s);
+    style.ItemSpacing = ImVec2(6.0f * s, 5.0f * s);
+    style.ItemInnerSpacing = ImVec2(5.0f * s, 3.0f * s);
+    style.WindowRounding = 6.0f * s;
+    style.FrameRounding = 4.0f * s;
+    style.GrabRounding = 4.0f * s;
+    style.ScrollbarRounding = 4.0f * s;
+    style.ChildRounding = 4.0f * s;
+    style.PopupRounding = 4.0f * s;
 
     const int blockState = replayer_.BlockInputState();
     if (blockState != lastBlockInputState_) {
@@ -573,14 +581,41 @@ void App::OnFrame() {
             ImGuiWindowFlags_NoTitleBar |
             ImGuiWindowFlags_NoSavedSettings);
 
-    DrawAppLogo(ImVec2(20.0f * s, 20.0f * s));
+    // 头部区域 - 紧凑设计
+    const float headerH = 40.0f * s;
+    ImGui::BeginChild("##header", ImVec2(0, headerH), true, ImGuiWindowFlags_NoScrollbar);
+    const float logoSize = 24.0f * s;
+    ImGui::SetCursorPosY((headerH - logoSize) * 0.5f);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f * s);
+    DrawAppLogo(ImVec2(logoSize, logoSize));
     ImGui::SameLine();
-    ImGui::TextUnformatted("Ctrl+F12: Emergency Stop");
+    
+    ImGui::BeginGroup();
+    ImGui::SetCursorPosY((headerH - ImGui::GetTextLineHeight()) * 0.5f);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.20f, 0.56f, 0.86f, 1.0f));
+    ImGui::Text("AutoClicker-Pro");
+    ImGui::PopStyleColor();
+    ImGui::EndGroup();
 
-    ImGui::RadioButton("简单模式", &mode_, 0);
+    // 紧急停止提示
     ImGui::SameLine();
+    ImGui::SetCursorPosY((headerH - ImGui::GetTextLineHeight()) * 0.5f);
+    ImGui::TextDisabled(" |  Ctrl+F12: 紧急停止");
+    
+    // 模式切换放在头部右侧
+    ImGui::SameLine();
+    const float modeWidth = 260.0f * s;
+    ImGui::SetCursorPosX(ImGui::GetWindowWidth() - modeWidth - ImGui::GetStyle().WindowPadding.x);
+    ImGui::SetCursorPosY((headerH - ImGui::GetFrameHeight()) * 0.5f);
+    if (ImGui::RadioButton("简单模式", &mode_, 0)) {
+        // 切换模式时重置一些状态
+    }
+    ImGui::SameLine(0, 20.0f * s);
     ImGui::RadioButton("高级模式 (Lua)", &mode_, 1);
-    ImGui::Separator();
+    ImGui::EndChild();
+
+    // 移除 Header 与 Content 之间的大间距，只留一点点
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.0f * s);
 
     if (mode_ == 0) DrawSimpleMode();
     if (mode_ == 1) DrawAdvancedMode();
@@ -600,13 +635,44 @@ void App::DrawStatusBar() {
     const int64_t now = timing::MicrosNow();
     if (statusText_.empty() || now >= statusExpireMicros_) return;
 
-    ImVec4 c = ImVec4(0.78f, 0.78f, 0.78f, 1.0f);
-    if (statusLevel_ == 1) c = ImVec4(0.30f, 0.85f, 0.45f, 1.0f);
-    if (statusLevel_ == 2) c = ImVec4(0.98f, 0.76f, 0.30f, 1.0f);
-    if (statusLevel_ == 3) c = ImVec4(1.00f, 0.35f, 0.35f, 1.0f);
+    ImVec4 c = ImVec4(0.45f, 0.45f, 0.45f, 1.0f);
+    ImVec4 bgColor = ImVec4(0.95f, 0.95f, 0.95f, 1.0f);
+    
+    if (statusLevel_ == 1) {
+        c = ImVec4(0.13f, 0.59f, 0.29f, 1.0f);  // 绿色
+        bgColor = ImVec4(0.85f, 0.98f, 0.90f, 1.0f);
+    }
+    if (statusLevel_ == 2) {
+        c = ImVec4(0.85f, 0.55f, 0.10f, 1.0f);  // 橙色
+        bgColor = ImVec4(1.00f, 0.95f, 0.85f, 1.0f);
+    }
+    if (statusLevel_ == 3) {
+        c = ImVec4(0.85f, 0.15f, 0.15f, 1.0f);  // 红色
+        bgColor = ImVec4(1.00f, 0.90f, 0.90f, 1.0f);
+    }
 
-    ImGui::Separator();
+    const float s = UiScale();
+    // 移除不必要的 Spacing，保持紧凑
+    
+    // 状态栏 - 再压缩高度
+    ImGui::BeginChild("##status_bar", ImVec2(0, 28.0f * s), true, ImGuiWindowFlags_NoScrollbar);
+    
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 winPos = ImGui::GetWindowPos();
+    const ImVec2 winSize = ImGui::GetWindowSize();
+    dl->AddRectFilled(winPos, ImVec2(winPos.x + winSize.x, winPos.y + winSize.y), ImGui::GetColorU32(bgColor));
+    
+    // 文字垂直居中
+    ImGui::SetCursorPosY((winSize.y - ImGui::GetTextLineHeight()) * 0.5f);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.0f * s);
+    
+    // 文本自动换行
+    const float availWidth = ImGui::GetContentRegionAvail().x;
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + availWidth);
     ImGui::TextColored(c, "%s", statusText_.c_str());
+    ImGui::PopTextWrapPos();
+    
+    ImGui::EndChild();
 }
 
 void App::DrawBlockInputConfirmModal() {
@@ -669,194 +735,338 @@ void App::SetStatusError(const std::string& text) {
     statusExpireMicros_ = timing::MicrosNow() + 8'000'000;
 }
 
+static std::string FormatEvent(const trc::RawEvent& e) {
+    char buf[128];
+    const auto type = static_cast<trc::EventType>(e.type);
+    switch (type) {
+    case trc::EventType::MouseMove:
+        snprintf(buf, sizeof(buf), "Move (%d, %d)", e.x, e.y);
+        break;
+    case trc::EventType::MouseDown:
+        snprintf(buf, sizeof(buf), "Down %s (%d, %d)", 
+            e.data == 0 ? "L" : (e.data == 1 ? "R" : "M"), e.x, e.y);
+        break;
+    case trc::EventType::MouseUp:
+        snprintf(buf, sizeof(buf), "Up %s (%d, %d)", 
+            e.data == 0 ? "L" : (e.data == 1 ? "R" : "M"), e.x, e.y);
+        break;
+    case trc::EventType::Wheel:
+        snprintf(buf, sizeof(buf), "Wheel %d", e.data);
+        break;
+    case trc::EventType::KeyDown:
+        snprintf(buf, sizeof(buf), "Key Down 0x%02X", e.data);
+        break;
+    case trc::EventType::KeyUp:
+        snprintf(buf, sizeof(buf), "Key Up 0x%02X", e.data);
+        break;
+    default:
+        snprintf(buf, sizeof(buf), "Unknown (%d)", e.type);
+        break;
+    }
+    
+    // Append delay info if significant
+    if (e.timeDelta > 1000) {
+        std::string s(buf);
+        char t[32];
+        snprintf(t, sizeof(t), " (+%lld ms)", e.timeDelta / 1000);
+        return s + t;
+    }
+    return std::string(buf);
+}
+
 void App::DrawSimpleMode() {
     const float s = UiScale();
-    const bool recording = recorder_.IsRecording();
-    const bool replaying = replayer_.IsRunning();
-
-    ImGui::TextUnformatted("任务文件 (.trc)");
-    InputTextString("##trcpath", &trcPath_);
+    const float availWidth = ImGui::GetContentRegionAvail().x;
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    
+    // --- 1. 配置区域 (紧凑) ---
+    // 第一行：文件操作
+    ImGui::TextUnformatted("脚本文件");
     ImGui::SameLine();
-    if (ImGui::Button("浏览##trc")) {
+    
+    const float browseBtnW = 60.0f * s;
+    const float saveBtnW = 60.0f * s;
+    const float fileLabelW = ImGui::CalcTextSize("脚本文件").x;
+    
+    ImGui::SetNextItemWidth(availWidth - fileLabelW - browseBtnW - saveBtnW - spacing * 4 - ImGui::GetStyle().WindowPadding.x);
+    InputTextString("##path", &trcPath_);
+    
+    ImGui::SameLine();
+    if (ImGui::Button("浏览...", ImVec2(browseBtnW, 0))) {
         wchar_t buf[MAX_PATH]{};
         std::wstring w = Utf8ToWide(trcPath_);
         wcsncpy_s(buf, w.c_str(), _TRUNCATE);
-        if (OpenFileDialog(nullptr, buf, MAX_PATH, L"Tiny Record (*.trc)\0*.trc\0\0")) trcPath_ = WideToUtf8(std::wstring(buf));
+        if (OpenFileDialog(nullptr, buf, MAX_PATH, L"Trace File (*.trc)\0*.trc\0\0")) trcPath_ = WideToUtf8(std::wstring(buf));
     }
+    
     ImGui::SameLine();
-    if (ImGui::Button("另存为##trc")) {
+    if (ImGui::Button("另存为", ImVec2(saveBtnW, 0))) {
         wchar_t buf[MAX_PATH]{};
         std::wstring w = Utf8ToWide(trcPath_);
         wcsncpy_s(buf, w.c_str(), _TRUNCATE);
-        if (SaveFileDialog(nullptr, buf, MAX_PATH, L"Tiny Record (*.trc)\0*.trc\0\0")) trcPath_ = WideToUtf8(std::wstring(buf));
+        if (SaveFileDialog(nullptr, buf, MAX_PATH, L"Trace File (*.trc)\0*.trc\0\0")) {
+            trcPath_ = WideToUtf8(std::wstring(buf));
+            recorder_.SaveToFile(Utf8ToWide(trcPath_));
+            SetStatusOk("已保存录制文件");
+        }
     }
 
-    ImGui::Checkbox("屏蔽系统输入 (可能需要管理员权限)", &blockInput_);
-    ImGui::SliderFloat("回放倍速", &speedFactor_, 0.5f, 10.0f, "%.2f");
-    replayer_.SetSpeed(speedFactor_);
+    // 第二行：参数设置
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("回放设置");
+    ImGui::SameLine();
+    
+    ImGui::SetNextItemWidth(120.0f * s);
+    if (ImGui::SliderFloat("##speed", &speedFactor_, 0.1f, 10.0f, "倍速: %.1fx")) {
+        replayer_.SetSpeed(speedFactor_);
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("回放速度倍率 (0.1 - 10.0)");
+    
+    ImGui::SameLine();
+    ImGui::Checkbox("屏蔽输入", &blockInput_);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("回放时屏蔽物理键鼠输入");
 
     ImGui::Separator();
 
-    if (!recording && !replaying) {
-        if (ImGui::Button("开始录制", ImVec2(140.0f * s, 0))) StartRecording();
-        ImGui::SameLine();
-        if (ImGui::Button("加载 .trc", ImVec2(140.0f * s, 0))) {
-            if (recorder_.LoadFromFile(Utf8ToWide(trcPath_))) SetStatusOk("加载成功");
-            else SetStatusError("加载失败：无法读取 .trc");
+    // --- 2. 列表区域 (自适应) ---
+    // 预留底部按钮区域高度 (约 40px)
+    const float bottomHeight = 40.0f * s;
+    const float listHeight = std::max(100.0f * s, ImGui::GetContentRegionAvail().y - bottomHeight - 4.0f * s);
+    
+    ImGui::TextDisabled("事件列表 (%zu 个事件)", recorder_.Events().size());
+    
+    if (ImGui::BeginChild("##event_list", ImVec2(0, listHeight), true)) {
+        // 使用 Clipper 优化大列表性能
+        ImGuiListClipper clipper;
+        clipper.Begin((int)recorder_.Events().size());
+        while (clipper.Step()) {
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
+                const auto& evt = recorder_.Events()[i];
+                ImGui::Text("%04d | %s", i + 1, FormatEvent(evt).c_str());
+            }
         }
-    } else if (recording) {
-        if (ImGui::Button("停止录制", ImVec2(140.0f * s, 0))) StopRecording();
-        ImGui::SameLine();
-        if (ImGui::Button("保存 .trc", ImVec2(140.0f * s, 0))) {
-            if (recorder_.SaveToFile(Utf8ToWide(trcPath_))) SetStatusOk("保存成功");
-            else SetStatusError("保存失败：无法写入 .trc");
-        }
-    } else if (replaying) {
-        if (ImGui::Button("停止回放", ImVec2(140.0f * s, 0))) StopReplay();
+        
+        // 自动滚动到底部
+        if (recorder_.IsRecording() && ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
+            ImGui::SetScrollHereY(1.0f);
+            
+        ImGui::EndChild();
     }
 
-    if (!recording && !replaying) {
-        ImGui::SameLine();
-        if (ImGui::Button("开始回放", ImVec2(140.0f * s, 0))) StartReplay();
-    }
-
-    ImGui::Separator();
-
-    const auto& events = recorder_.Events();
-    int cntMove = 0;
-    int cntDown = 0;
-    int cntUp = 0;
-    int cntWheel = 0;
-    int cntKeyDown = 0;
-    int cntKeyUp = 0;
-    for (const auto& e : events) {
-        switch (static_cast<trc::EventType>(e.type)) {
-        case trc::EventType::MouseMove: ++cntMove; break;
-        case trc::EventType::MouseDown: ++cntDown; break;
-        case trc::EventType::MouseUp: ++cntUp; break;
-        case trc::EventType::Wheel: ++cntWheel; break;
-        case trc::EventType::KeyDown: ++cntKeyDown; break;
-        case trc::EventType::KeyUp: ++cntKeyUp; break;
-        default: break;
+    // --- 3. 底部操作栏 ---
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f * s);
+    const float btnH = 32.0f * s;
+    
+    if (!recorder_.IsRecording() && !replayer_.IsRunning()) {
+        // 空闲状态：显示 [加载] [录制] [回放]
+        const float btnW = (availWidth - spacing * 2) / 3.0f;
+        
+        if (ImGui::Button("加载文件", ImVec2(btnW, btnH))) {
+            if (recorder_.LoadFromFile(Utf8ToWide(trcPath_))) SetStatusOk("已加载录制文件");
+            else SetStatusError("加载失败");
         }
-    }
-
-    ImGui::Text("事件数: %d", static_cast<int>(events.size()));
-    ImGui::Text("总时长: %.3fs", static_cast<double>(recorder_.TotalDurationMicros()) / 1'000'000.0);
-    ImGui::Text("Move: %d  Down: %d  Up: %d  Wheel: %d  KeyDown: %d  KeyUp: %d", cntMove, cntDown, cntUp, cntWheel, cntKeyDown, cntKeyUp);
-
-    if (replaying) {
-        ImGui::TextUnformatted("回放进度");
-        ImGui::ProgressBar(replayer_.Progress01(), ImVec2(-1, 0));
+        
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f)); // 红色录制
+        if (ImGui::Button("开始录制 (F9)", ImVec2(btnW, btnH))) {
+            StartRecording();
+        }
+        ImGui::PopStyleColor();
+        
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f)); // 绿色回放
+        if (ImGui::Button("开始回放 (F10)", ImVec2(btnW, btnH))) {
+            StartReplay();
+        }
+        ImGui::PopStyleColor();
+        
+    } else {
+        // 工作状态：显示 [停止]
+        const float btnW = availWidth * 0.6f;
+        ImGui::SetCursorPosX((availWidth - btnW) * 0.5f); // 居中
+        
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.6f, 0.2f, 1.0f)); // 橙色停止
+        std::string stopLabel = recorder_.IsRecording() ? "停止录制 (F9)" : "停止回放 (F10)";
+        if (ImGui::Button(stopLabel.c_str(), ImVec2(btnW, btnH))) {
+            if (recorder_.IsRecording()) StopRecording();
+            else StopReplay();
+        }
+        ImGui::PopStyleColor();
     }
 }
 
 void App::DrawAdvancedMode() {
     const float s = UiScale();
-    ImGui::TextUnformatted("Lua 文件 (.lua)");
-    InputTextString("##luapath", &luaPath_);
-    ImGui::SameLine();
-    if (ImGui::Button("浏览##lua")) {
-        wchar_t buf[MAX_PATH]{};
-        std::wstring w = Utf8ToWide(luaPath_);
-        wcsncpy_s(buf, w.c_str(), _TRUNCATE);
-        if (OpenFileDialog(nullptr, buf, MAX_PATH, L"Lua Script (*.lua)\0*.lua\0\0")) luaPath_ = WideToUtf8(std::wstring(buf));
-    }
-
-    if (ImGui::Button("打开到编辑器")) {
-        luaEditor_ = ReadTextFile(Utf8ToWide(luaPath_));
-        luaLastError_.clear();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("保存编辑器内容")) {
-        WriteTextFile(Utf8ToWide(luaPath_), luaEditor_);
-    }
-    ImGui::SameLine();
     const bool scriptRunning = lua_.IsRunning();
-    if (!scriptRunning) {
-        if (ImGui::Button("运行脚本")) {
-            luaLastError_.clear();
-            if (!lua_.StartAsync(luaEditor_)) {
-                SetStatusError("脚本启动失败");
-            } else {
-                HWND target = RootWindowAtCursor();
-                if (target) {
-                    const bool targetElev = IsWindowProcessElevated(target);
-                    const bool selfElev = IsCurrentProcessElevated();
-                    if (targetElev && !selfElev) {
-                        SetStatusWarn("目标窗口是管理员权限，当前程序非管理员，键盘/滚轮可能被系统拦截");
-                    }
-                }
-
-                if (minimizeOnScriptRun_ && hwnd_) {
-                    ShowWindow(hwnd_, SW_MINIMIZE);
-                    scriptMinimized_ = true;
-                }
-
-                luaLastHighlightLine_ = 0;
-                SetStatusOk("脚本开始执行");
-            }
+    const float availWidth = ImGui::GetContentRegionAvail().x;
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    
+    // --- 1. 文件栏 ---
+    {
+        ImGui::TextUnformatted("Lua 文件");
+        ImGui::SameLine();
+        const float browseWidth = 52.0f * s;
+        const float saveWidth = 52.0f * s;
+        const float fileLabelW = ImGui::CalcTextSize("Lua 文件").x;
+        
+        // 路径输入框占据主要宽度
+        ImGui::SetNextItemWidth(availWidth - fileLabelW - browseWidth - saveWidth * 2 - spacing * 4 - ImGui::GetStyle().WindowPadding.x);
+        InputTextString("##luapath", &luaPath_);
+        
+        ImGui::SameLine();
+        if (ImGui::Button("浏览...", ImVec2(browseWidth, 0))) {
+            wchar_t buf[MAX_PATH]{};
+            std::wstring w = Utf8ToWide(luaPath_);
+            wcsncpy_s(buf, w.c_str(), _TRUNCATE);
+            if (OpenFileDialog(nullptr, buf, MAX_PATH, L"Lua Script (*.lua)\0*.lua\0\0")) luaPath_ = WideToUtf8(std::wstring(buf));
         }
-    } else {
-        if (ImGui::Button("停止脚本")) {
-            lua_.StopAsync();
-            SetStatusInfo("已停止脚本");
-        }
-    }
-
-    ImGui::SameLine();
-    ImGui::Checkbox("脚本运行时最小化窗口", &minimizeOnScriptRun_);
-    ImGui::SameLine();
-    ImGui::Checkbox("API 文档", &luaUi_.docsOpen);
-    ImGui::SameLine();
-    ImGui::Checkbox("提示/补全", &luaUi_.assistEnabled);
-
-    if (!luaLastError_.empty()) {
-        ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "%s", luaLastError_.c_str());
-    }
-
-    const int curLine = scriptRunning ? lua_.CurrentLine() : 0;
-    if (scriptRunning) {
-        if (curLine > 0) ImGui::Text("当前执行行: %d", curLine);
-        else ImGui::TextUnformatted("当前执行行: -");
-    }
-    const float editorH = 260.0f * s;
-    if (luaUi_.docsOpen) {
-        if (ImGui::BeginTable("##lua_layout", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV)) {
-            ImGui::TableNextColumn();
-            DrawLuaEditorWithLineNumbers(&luaUi_, &luaEditor_, editorH, scriptRunning, curLine, &luaLastHighlightLine_);
-            ImGui::TableNextColumn();
-            DrawLuaDocsPanel(&luaUi_, editorH, false);
-            ImGui::EndTable();
-        } else {
-            DrawLuaEditorWithLineNumbers(&luaUi_, &luaEditor_, editorH, scriptRunning, curLine, &luaLastHighlightLine_);
-        }
-    } else {
-        DrawLuaEditorWithLineNumbers(&luaUi_, &luaEditor_, editorH, scriptRunning, curLine, &luaLastHighlightLine_);
-    }
-
-    const std::string err = lua_.LastError();
-    if (!err.empty() && luaLastError_ != err) {
-        luaLastError_ = err;
-        SetStatusError("脚本运行失败");
-    }
-
-    ImGui::Separator();
-
-    static float tol = 3.0f;
-    ImGui::SliderFloat("路径关键点容差(px)", &tol, 0.5f, 20.0f, "%.1f");
-    ImGui::Checkbox("高保真导出（包含点击/滚轮/按键）", &exportFull_);
-    if (ImGui::Button("从 .trc 导出到 .lua")) {
-        bool ok = false;
-        if (exportFull_) ok = Converter::TrcToLuaFull(Utf8ToWide(trcPath_), Utf8ToWide(luaPath_));
-        else ok = Converter::TrcToLua(Utf8ToWide(trcPath_), Utf8ToWide(luaPath_), tol);
-        if (ok) {
+        
+        ImGui::SameLine();
+        if (ImGui::Button("加载", ImVec2(saveWidth, 0))) {
             luaEditor_ = ReadTextFile(Utf8ToWide(luaPath_));
             luaLastError_.clear();
-            SetStatusOk("导出成功");
-        } else {
-            SetStatusError("导出失败：无法读取 .trc 或写入 .lua");
         }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("从文件加载内容到编辑器");
+
+        ImGui::SameLine();
+        if (ImGui::Button("保存", ImVec2(saveWidth, 0))) {
+            WriteTextFile(Utf8ToWide(luaPath_), luaEditor_);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("保存编辑器内容到文件");
+    }
+
+    // --- 2. 工具栏 (Toolbar) ---
+    ImGui::Spacing();
+    {
+        const float btnH = 28.0f * s; // 紧凑高度
+        
+        // 运行/停止
+        if (!scriptRunning) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.13f, 0.59f, 0.29f, 1.0f)); // 绿色
+            if (ImGui::Button("▶ 运行", ImVec2(80.0f * s, btnH))) {
+                luaLastError_.clear();
+                if (!lua_.StartAsync(luaEditor_)) {
+                    SetStatusError("脚本启动失败");
+                } else {
+                    // ... 启动逻辑保持不变 ...
+                    HWND target = RootWindowAtCursor();
+                    if (target) {
+                        const bool targetElev = IsWindowProcessElevated(target);
+                        const bool selfElev = IsCurrentProcessElevated();
+                        if (targetElev && !selfElev) {
+                            SetStatusWarn("目标窗口是管理员权限，当前程序非管理员，键盘/滚轮可能被系统拦截");
+                        }
+                    }
+                    if (minimizeOnScriptRun_ && hwnd_) {
+                        ShowWindow(hwnd_, SW_MINIMIZE);
+                        scriptMinimized_ = true;
+                    }
+                    luaLastHighlightLine_ = 0;
+                    SetStatusOk("脚本开始执行");
+                }
+            }
+            ImGui::PopStyleColor();
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.85f, 0.15f, 0.15f, 1.0f)); // 红色
+            if (ImGui::Button("■ 停止", ImVec2(80.0f * s, btnH))) {
+                lua_.StopAsync();
+                SetStatusInfo("已停止脚本");
+            }
+            ImGui::PopStyleColor();
+        }
+
+        ImGui::SameLine();
+        ImGui::Separator(); // 使用标准 Separator
+        ImGui::SameLine();
+
+        // 选项开关
+        ImGui::Checkbox("运行时最小化", &minimizeOnScriptRun_);
+        ImGui::SameLine();
+        ImGui::Checkbox("文档", &luaUi_.docsOpen);
+        ImGui::SameLine();
+        ImGui::Checkbox("补全", &luaUi_.assistEnabled);
+
+        // 更多工具 (下拉菜单)
+        ImGui::SameLine();
+        const float toolBtnWidth = 100.0f * s;
+        const float rightAlignPos = availWidth - toolBtnWidth - ImGui::GetStyle().WindowPadding.x;
+        if (ImGui::GetCursorPosX() < rightAlignPos) ImGui::SetCursorPosX(rightAlignPos);
+        
+        if (ImGui::Button("更多工具 ▼", ImVec2(toolBtnWidth, btnH))) {
+            ImGui::OpenPopup("more_tools_popup");
+        }
+
+        if (ImGui::BeginPopup("more_tools_popup")) {
+            ImGui::TextDisabled("转换工具 (TRC -> Lua)");
+            ImGui::Separator();
+            
+            static float tol = 3.0f;
+            ImGui::SetNextItemWidth(120.0f * s);
+            ImGui::SliderFloat("容差##tol", &tol, 0.5f, 20.0f, "%.1f px");
+            ImGui::Checkbox("高保真导出", &exportFull_);
+            
+            if (ImGui::Button("执行转换", ImVec2(-1, 0))) {
+                bool ok = false;
+                if (exportFull_) ok = Converter::TrcToLuaFull(Utf8ToWide(trcPath_), Utf8ToWide(luaPath_));
+                else ok = Converter::TrcToLua(Utf8ToWide(trcPath_), Utf8ToWide(luaPath_), tol);
+                if (ok) {
+                    luaEditor_ = ReadTextFile(Utf8ToWide(luaPath_));
+                    luaLastError_.clear();
+                    SetStatusOk("导出成功");
+                    ImGui::CloseCurrentPopup();
+                } else {
+                    SetStatusError("导出失败");
+                }
+            }
+            ImGui::EndPopup();
+        }
+    }
+
+    // --- 3. 错误信息显示 (如有) ---
+    if (!luaLastError_.empty()) {
+        ImGui::Spacing();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.2f, 0.2f, 1));
+        ImGui::TextWrapped("错误: %s", luaLastError_.c_str());
+        ImGui::PopStyleColor();
+    }
+
+    // --- 4. 编辑器区域 (填满剩余空间) ---
+    ImGui::Spacing();
+    const int curLine = scriptRunning ? lua_.CurrentLine() : 0;
+    // 计算剩余高度：总可用 - 当前光标位置 - 少量底部Padding
+    const float remainHeight = std::max(100.0f * s, ImGui::GetContentRegionAvail().y - 4.0f * s); 
+    
+    if (luaUi_.docsOpen) {
+        if (ImGui::BeginTable("##lua_layout", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV, ImVec2(0, remainHeight))) {
+            ImGui::TableSetupColumn("编辑器", ImGuiTableColumnFlags_WidthStretch, 0.75f);
+            ImGui::TableSetupColumn("文档", ImGuiTableColumnFlags_WidthStretch, 0.25f);
+            ImGui::TableNextColumn();
+            
+            // 编辑器列
+            if (scriptRunning) {
+                if (curLine > 0) ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1), "正在执行行: %d", curLine);
+                else ImGui::TextDisabled("正在执行...");
+            } else {
+                ImGui::TextDisabled("编辑器");
+            }
+            DrawLuaEditorWithLineNumbers(&luaUi_, &luaEditor_, -1.0f, scriptRunning, curLine, &luaLastHighlightLine_); // -1.0f 让 Child 自动填满 Cell
+            
+            ImGui::TableNextColumn();
+            // 文档列
+            DrawLuaDocsPanel(&luaUi_, -1.0f, false);
+            
+            ImGui::EndTable();
+        }
+    } else {
+        // 无文档，全屏编辑器
+        if (scriptRunning) {
+            if (curLine > 0) ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1), "正在执行行: %d", curLine);
+            else ImGui::TextDisabled("正在执行...");
+        }
+        // 使用 BeginChild 包装一下以确保高度控制
+        ImGui::BeginChild("##editor_container", ImVec2(0, remainHeight), false);
+        DrawLuaEditorWithLineNumbers(&luaUi_, &luaEditor_, remainHeight - ImGui::GetTextLineHeightWithSpacing(), scriptRunning, curLine, &luaLastHighlightLine_);
+        ImGui::EndChild();
     }
 }
 

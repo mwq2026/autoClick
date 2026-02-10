@@ -28,7 +28,7 @@ target_include_directories(imgui_dx11 PUBLIC
   ${imgui_SOURCE_DIR}
   ${imgui_SOURCE_DIR}/backends
 )
-target_compile_definitions(imgui_dx11 PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS=0)
+target_compile_definitions(imgui_dx11 PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS=1)
 target_link_libraries(imgui_dx11 PUBLIC d3d11 dxgi)
 
 FetchContent_Declare(
