@@ -31,11 +31,15 @@ target_include_directories(imgui_dx11 PUBLIC
 target_compile_definitions(imgui_dx11 PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS=1)
 target_link_libraries(imgui_dx11 PUBLIC d3d11 dxgi)
 
-FetchContent_Declare(
-  lua
-  URL https://www.lua.org/ftp/lua-5.4.6.tar.gz
-)
-FetchContent_MakeAvailable(lua)
+if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/lua/src")
+  set(lua_SOURCE_DIR "${CMAKE_SOURCE_DIR}/third_party/lua")
+else()
+  FetchContent_Declare(
+    lua
+    URL https://www.lua.org/ftp/lua-5.4.6.tar.gz
+  )
+  FetchContent_MakeAvailable(lua)
+endif()
 
 file(GLOB LUA_SRC
   ${lua_SOURCE_DIR}/src/*.c
