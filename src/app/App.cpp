@@ -3,9 +3,12 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <cctype>
+#include <cfloat>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <string_view>
 
 #include <commdlg.h>
 #include <imgui.h>
@@ -14,6 +17,8 @@
 #include "core/HighResClock.h"
 
 static bool InputTextMultilineString(const char* label, std::string* str, const ImVec2& size, ImGuiInputTextFlags extraFlags);
+static bool InputTextMultilineStringWithCallback(const char* label, std::string* str, const ImVec2& size, ImGuiInputTextFlags extraFlags, ImGuiInputTextCallback callback, void* userData);
+static int LuaEditorInputCallback(ImGuiInputTextCallbackData* data);
 
 static float UiScale() {
     const float fontSize = ImGui::GetFontSize();
@@ -76,7 +81,7 @@ static void DrawAppLogo(ImVec2 size) {
     ImGui::Dummy(ImVec2(s, s));
 }
 
-static void DrawLuaEditorWithLineNumbers(std::string* text, float height, bool readOnly, int highlightLine, int* lastScrollToLine) {
+static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text, float height, bool readOnly, int highlightLine, int* lastScrollToLine) {
     if (!text) return;
 
     const float s = UiScale();
@@ -90,7 +95,22 @@ static void DrawLuaEditorWithLineNumbers(std::string* text, float height, bool r
 
     const float desiredEditorH = std::max(height, lineCount * lineH + 8.0f * s);
     ImGui::SetCursorPosX(gutter);
-    InputTextMultilineString("##luaeditor", text, ImVec2(-1, desiredEditorH), readOnly ? ImGuiInputTextFlags_ReadOnly : 0);
+    const ImGuiInputTextFlags ro = readOnly ? ImGuiInputTextFlags_ReadOnly : 0;
+    const ImGuiInputTextFlags assistFlags = ImGuiInputTextFlags_CallbackAlways | ImGuiInputTextFlags_CallbackCompletion;
+    if (!readOnly && ui && ui->assistEnabled) {
+        InputTextMultilineStringWithCallback("##luaeditor", text, ImVec2(-1, desiredEditorH), ro | assistFlags, LuaEditorInputCallback, ui);
+    } else {
+        InputTextMultilineString("##luaeditor", text, ImVec2(-1, desiredEditorH), ro);
+    }
+    const bool editorActive = ImGui::IsItemActive();
+    if (ui && !readOnly && ui->assistEnabled && editorActive) {
+        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Space)) {
+            ui->completionOpen = true;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            ui->completionOpen = false;
+        }
+    }
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImVec2 winPos = ImGui::GetWindowPos();
@@ -115,7 +135,149 @@ static void DrawLuaEditorWithLineNumbers(std::string* text, float height, bool r
         dl->AddText(ImVec2(origin.x + 6.0f * s, y), IM_COL32(190, 190, 190, 255), buf);
     }
 
+    if (ui && ui->assistEnabled) {
+        const ImVec2 itemMin = ImGui::GetItemRectMin();
+        const ImVec2 fp = ImGui::GetStyle().FramePadding;
+        const ImVec2 textBase(itemMin.x + fp.x, itemMin.y + fp.y);
+
+        const auto& docs = LuaEngine::ApiDocs();
+        auto isIdent = [](char c) {
+            return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_';
+        };
+        auto isApi = [&docs](std::string_view tok) {
+            for (const auto& d : docs) {
+                if (!d.name) continue;
+                const size_t n = std::strlen(d.name);
+                if (n == tok.size() && std::memcmp(d.name, tok.data(), n) == 0) return true;
+            }
+            return false;
+        };
+        auto isKw = [](std::string_view tok) {
+            static const char* k[] = {
+                "and","break","do","else","elseif","end","false","for","function","if","in","local","nil","not","or","repeat","return","then","true","until","while"
+            };
+            for (const char* s : k) {
+                const size_t n = std::strlen(s);
+                if (n == tok.size() && std::memcmp(s, tok.data(), n) == 0) return true;
+            }
+            return false;
+        };
+
+        const ImU32 kwCol = IM_COL32(230, 190, 110, 255);
+        const ImU32 fnCol = IM_COL32(120, 200, 255, 255);
+        const ImU32 cmCol = IM_COL32(140, 150, 160, 255);
+        const ImU32 numCol = IM_COL32(160, 220, 160, 255);
+
+        ImFont* font = ImGui::GetFont();
+        const float fontSize = ImGui::GetFontSize();
+        auto width = [font, fontSize](std::string_view v) {
+            if (v.empty()) return 0.0f;
+            return font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, v.data(), v.data() + v.size()).x;
+        };
+
+        const std::string& src = *text;
+        int line = 0;
+        int lineStart = 0;
+        for (int idx = 0; idx <= static_cast<int>(src.size()); ++idx) {
+            const bool eol = (idx == static_cast<int>(src.size())) || (src[idx] == '\n');
+            if (!eol) continue;
+            if (line >= first && line < last) {
+                const int lineEnd = idx;
+                const std::string_view sv(src.data() + lineStart, static_cast<size_t>(lineEnd - lineStart));
+
+                size_t commentPos = sv.find("--");
+                const std::string_view code = (commentPos == std::string_view::npos) ? sv : sv.substr(0, commentPos);
+                if (commentPos != std::string_view::npos) {
+                    const std::string_view cm = sv.substr(commentPos);
+                    const float x = width(code);
+                    dl->AddText(ImVec2(textBase.x + x, textBase.y + line * lineH), cmCol, cm.data(), cm.data() + cm.size());
+                }
+
+                size_t j = 0;
+                while (j < code.size()) {
+                    while (j < code.size() && !isIdent(code[j]) && code[j] != '.' && (std::isdigit(static_cast<unsigned char>(code[j])) == 0)) ++j;
+                    if (j >= code.size()) break;
+
+                    if (std::isdigit(static_cast<unsigned char>(code[j])) != 0) {
+                        size_t k = j + 1;
+                        while (k < code.size() && (std::isdigit(static_cast<unsigned char>(code[k])) != 0 || code[k] == '.')) ++k;
+                        const float x = width(code.substr(0, j));
+                        const std::string_view num = code.substr(j, k - j);
+                        dl->AddText(ImVec2(textBase.x + x, textBase.y + line * lineH), numCol, num.data(), num.data() + num.size());
+                        j = k;
+                        continue;
+                    }
+
+                    if (code[j] == '.') {
+                        ++j;
+                        continue;
+                    }
+
+                    size_t k = j + 1;
+                    while (k < code.size() && isIdent(code[k])) ++k;
+                    const std::string_view tok = code.substr(j, k - j);
+                    ImU32 col = 0;
+                    if (isKw(tok)) col = kwCol;
+                    else if (isApi(tok)) col = fnCol;
+                    if (col != 0) {
+                        const float x = width(code.substr(0, j));
+                        dl->AddText(ImVec2(textBase.x + x, textBase.y + line * lineH), col, tok.data(), tok.data() + tok.size());
+                    }
+                    j = k;
+                }
+            }
+            ++line;
+            lineStart = idx + 1;
+            if (line >= last) break;
+        }
+    }
+
     dl->PopClipRect();
+
+    if (ui && !readOnly && ui->assistEnabled && editorActive && ui->completionOpen && !ui->completionMatches.empty()) {
+        const auto& docs = LuaEngine::ApiDocs();
+        const float popupH = 170.0f * s;
+        const float popupW = 420.0f * s;
+        const ImVec2 popupPos(winPos.x + gutter + 6.0f * s, winPos.y + winSize.y - popupH - 6.0f * s);
+        ImGui::SetNextWindowPos(popupPos, ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(popupW, popupH), ImGuiCond_Always);
+        ImGui::Begin(
+            "##lua_completion_popup",
+            nullptr,
+            ImGuiWindowFlags_NoTitleBar |
+                ImGuiWindowFlags_NoResize |
+                ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoSavedSettings |
+                ImGuiWindowFlags_NoFocusOnAppearing);
+
+        ImGui::TextDisabled("补全: %s", ui->completionPrefix.c_str());
+        ImGui::Separator();
+        ImGui::BeginChild("##lua_completion_list", ImVec2(-1, 95.0f * s), true);
+        for (int k = 0; k < static_cast<int>(ui->completionMatches.size()) && k < 50; ++k) {
+            const int docIdx = ui->completionMatches[k];
+            const bool selected = (ui->completionSelected == k);
+            const char* name = docs[docIdx].name ? docs[docIdx].name : "";
+            if (ImGui::Selectable(name, selected)) ui->completionSelected = k;
+            if (ImGui::IsItemHovered() && docs[docIdx].signature) ImGui::SetTooltip("%s", docs[docIdx].signature);
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                ui->completionPendingInsert = name;
+            }
+        }
+        ImGui::EndChild();
+
+        const int sel = std::clamp(ui->completionSelected, 0, static_cast<int>(ui->completionMatches.size()) - 1);
+        const int docIdx = ui->completionMatches[sel];
+        if (docs[docIdx].signature) ImGui::TextDisabled("%s", docs[docIdx].signature);
+        if (docs[docIdx].brief) ImGui::TextWrapped("%s", docs[docIdx].brief);
+        if (ImGui::Button("插入所选")) {
+            const char* name = docs[docIdx].name ? docs[docIdx].name : "";
+            ui->completionPendingInsert = name;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("Tab: 完成  Ctrl+Space: 打开  Esc: 关闭  双击: 插入");
+
+        ImGui::End();
+    }
 
     if (highlightLine > 0 && lastScrollToLine && *lastScrollToLine != highlightLine) {
         const float targetY = (highlightLine - 1) * lineH;
@@ -168,6 +330,190 @@ static bool InputTextMultilineString(const char* label, std::string* str, const 
     const bool changed = ImGui::InputTextMultiline(label, str->data(), str->size() + 1, size, flags, ImGuiStringResizeCallback, str);
     str->resize(std::strlen(str->c_str()));
     return changed;
+}
+
+struct InputTextChainCtx {
+    std::string* str;
+    ImGuiInputTextCallback callback;
+    void* userData;
+};
+
+static int ImGuiStringResizeChainCallback(ImGuiInputTextCallbackData* data) {
+    auto* ctx = static_cast<InputTextChainCtx*>(data->UserData);
+    if (!ctx || !ctx->str) return 0;
+    if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
+        ctx->str->resize(static_cast<size_t>(data->BufTextLen));
+        data->Buf = ctx->str->data();
+        return 0;
+    }
+    if (!ctx->callback) return 0;
+    void* old = data->UserData;
+    data->UserData = ctx->userData;
+    const int r = ctx->callback(data);
+    data->UserData = old;
+    return r;
+}
+
+static bool InputTextMultilineStringWithCallback(const char* label, std::string* str, const ImVec2& size, ImGuiInputTextFlags extraFlags, ImGuiInputTextCallback callback, void* userData) {
+    ImGuiInputTextFlags flags = ImGuiInputTextFlags_CallbackResize | extraFlags;
+    if (str->capacity() < 4096) str->reserve(4096);
+    str->resize(str->capacity());
+    InputTextChainCtx ctx{ str, callback, userData };
+    const bool changed = ImGui::InputTextMultiline(label, str->data(), str->size() + 1, size, flags, ImGuiStringResizeChainCallback, &ctx);
+    str->resize(std::strlen(str->c_str()));
+    return changed;
+}
+
+static bool ContainsCaseInsensitive(const char* s, const std::string& needle) {
+    if (!s) return false;
+    if (needle.empty()) return true;
+    const size_t n = needle.size();
+    for (const char* p = s; *p; ++p) {
+        size_t i = 0;
+        while (i < n && p[i] && std::tolower(static_cast<unsigned char>(p[i])) == std::tolower(static_cast<unsigned char>(needle[i]))) ++i;
+        if (i == n) return true;
+    }
+    return false;
+}
+
+static bool IsIdentChar(char c) {
+    return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_';
+}
+
+static void BuildCompletionMatches(LuaScriptUiState* ui, const char* buf, int cursorPos) {
+    if (!ui || !buf) return;
+    const int len = static_cast<int>(std::strlen(buf));
+    const int cur = std::clamp(cursorPos, 0, len);
+    int start = cur;
+    while (start > 0 && IsIdentChar(buf[start - 1])) --start;
+    ui->completionCursorPos = cur;
+    ui->completionWordStart = start;
+    ui->completionPrefix.assign(buf + start, buf + cur);
+
+    ui->completionMatches.clear();
+    if (!ui->assistEnabled) return;
+    if (ui->completionPrefix.empty()) return;
+
+    const auto& docs = LuaEngine::ApiDocs();
+    ui->completionMatches.reserve(32);
+    for (int i = 0; i < static_cast<int>(docs.size()); ++i) {
+        const char* name = docs[i].name;
+        if (!name) continue;
+        if (std::strncmp(name, ui->completionPrefix.c_str(), ui->completionPrefix.size()) == 0) ui->completionMatches.push_back(i);
+    }
+    if (ui->completionSelected >= static_cast<int>(ui->completionMatches.size())) ui->completionSelected = 0;
+}
+
+static std::string CommonPrefix(const LuaScriptUiState* ui) {
+    if (!ui || ui->completionMatches.empty()) return {};
+    const auto& docs = LuaEngine::ApiDocs();
+    std::string p = docs[ui->completionMatches[0]].name ? docs[ui->completionMatches[0]].name : "";
+    for (size_t i = 1; i < ui->completionMatches.size(); ++i) {
+        const char* s = docs[ui->completionMatches[i]].name ? docs[ui->completionMatches[i]].name : "";
+        size_t j = 0;
+        while (j < p.size() && s[j] && p[j] == s[j]) ++j;
+        p.resize(j);
+        if (p.empty()) break;
+    }
+    return p;
+}
+
+static int LuaEditorInputCallback(ImGuiInputTextCallbackData* data) {
+    auto* ui = static_cast<LuaScriptUiState*>(data->UserData);
+    if (!ui) return 0;
+
+    if (data->Buf) BuildCompletionMatches(ui, data->Buf, data->CursorPos);
+
+    if (!ui->completionPendingInsert.empty()) {
+        const std::string insert = ui->completionPendingInsert;
+        ui->completionPendingInsert.clear();
+        const int start = std::clamp(ui->completionWordStart, 0, data->BufTextLen);
+        const int cur = std::clamp(ui->completionCursorPos, 0, data->BufTextLen);
+        if (cur >= start) {
+            data->DeleteChars(start, cur - start);
+            data->InsertChars(start, insert.c_str());
+            data->CursorPos = start + static_cast<int>(insert.size());
+        }
+        ui->completionOpen = false;
+        return 0;
+    }
+
+    if (data->EventFlag == ImGuiInputTextFlags_CallbackCompletion) {
+        if (data->Buf) BuildCompletionMatches(ui, data->Buf, data->CursorPos);
+        if (ui->completionMatches.empty()) return 0;
+        const auto& docs = LuaEngine::ApiDocs();
+        const int start = std::clamp(ui->completionWordStart, 0, data->BufTextLen);
+        const int cur = std::clamp(ui->completionCursorPos, 0, data->BufTextLen);
+
+        if (ui->completionMatches.size() == 1) {
+            const char* name = docs[ui->completionMatches[0]].name;
+            if (!name) return 0;
+            data->DeleteChars(start, cur - start);
+            data->InsertChars(start, name);
+            data->CursorPos = start + static_cast<int>(std::strlen(name));
+            ui->completionOpen = false;
+            return 0;
+        }
+
+        const std::string common = CommonPrefix(ui);
+        if (!common.empty() && common.size() > ui->completionPrefix.size()) {
+            data->DeleteChars(start, cur - start);
+            data->InsertChars(start, common.c_str());
+            data->CursorPos = start + static_cast<int>(common.size());
+            ui->completionOpen = true;
+            return 0;
+        }
+
+        ui->completionOpen = true;
+        return 0;
+    }
+
+    return 0;
+}
+
+static void DrawLuaDocsPanel(LuaScriptUiState* ui, float height, bool disabled) {
+    if (!ui) return;
+    const auto& docs = LuaEngine::ApiDocs();
+    ImGui::BeginChild("##lua_docs_panel", ImVec2(-1, height), true);
+
+    ImGui::TextUnformatted("Lua API");
+    ImGui::SameLine();
+    ImGui::Checkbox("提示/补全", &ui->assistEnabled);
+    if (disabled) ImGui::BeginDisabled();
+    InputTextString("搜索##lua_docs", &ui->docsFilter);
+    if (disabled) ImGui::EndDisabled();
+
+    ImGui::Separator();
+
+    ImGui::BeginChild("##lua_docs_list", ImVec2(-1, height * 0.55f), true);
+    for (int i = 0; i < static_cast<int>(docs.size()); ++i) {
+        const auto& d = docs[i];
+        const bool pass = ui->docsFilter.empty() ||
+            ContainsCaseInsensitive(d.name, ui->docsFilter) ||
+            ContainsCaseInsensitive(d.signature, ui->docsFilter) ||
+            ContainsCaseInsensitive(d.group, ui->docsFilter);
+        if (!pass) continue;
+        const bool selected = (ui->docsSelected == i);
+        std::string label = (d.group ? std::string(d.group) : std::string()) + "  " + (d.name ? d.name : "");
+        if (ImGui::Selectable(label.c_str(), selected)) ui->docsSelected = i;
+    }
+    ImGui::EndChild();
+
+    ImGui::Separator();
+
+    ImGui::BeginChild("##lua_docs_detail", ImVec2(-1, 0), true);
+    const int sel = ui->docsSelected;
+    if (sel >= 0 && sel < static_cast<int>(docs.size())) {
+        const auto& d = docs[sel];
+        if (d.name) ImGui::Text("%s", d.name);
+        if (d.signature) ImGui::TextDisabled("%s", d.signature);
+        if (d.brief) ImGui::TextWrapped("%s", d.brief);
+        if (ImGui::Button("复制签名") && d.signature) ImGui::SetClipboardText(d.signature);
+    } else {
+        ImGui::TextDisabled("选择一个函数查看说明");
+    }
+    ImGui::EndChild();
+    ImGui::EndChild();
 }
 
 App::App(HINSTANCE hInstance, HWND hwnd) : hInstance_(hInstance), hwnd_(hwnd) {
@@ -460,6 +806,10 @@ void App::DrawAdvancedMode() {
 
     ImGui::SameLine();
     ImGui::Checkbox("脚本运行时最小化窗口", &minimizeOnScriptRun_);
+    ImGui::SameLine();
+    ImGui::Checkbox("API 文档", &luaUi_.docsOpen);
+    ImGui::SameLine();
+    ImGui::Checkbox("提示/补全", &luaUi_.assistEnabled);
 
     if (!luaLastError_.empty()) {
         ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "%s", luaLastError_.c_str());
@@ -470,7 +820,20 @@ void App::DrawAdvancedMode() {
         if (curLine > 0) ImGui::Text("当前执行行: %d", curLine);
         else ImGui::TextUnformatted("当前执行行: -");
     }
-    DrawLuaEditorWithLineNumbers(&luaEditor_, 260.0f * s, scriptRunning, curLine, &luaLastHighlightLine_);
+    const float editorH = 260.0f * s;
+    if (luaUi_.docsOpen) {
+        if (ImGui::BeginTable("##lua_layout", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV)) {
+            ImGui::TableNextColumn();
+            DrawLuaEditorWithLineNumbers(&luaUi_, &luaEditor_, editorH, scriptRunning, curLine, &luaLastHighlightLine_);
+            ImGui::TableNextColumn();
+            DrawLuaDocsPanel(&luaUi_, editorH, false);
+            ImGui::EndTable();
+        } else {
+            DrawLuaEditorWithLineNumbers(&luaUi_, &luaEditor_, editorH, scriptRunning, curLine, &luaLastHighlightLine_);
+        }
+    } else {
+        DrawLuaEditorWithLineNumbers(&luaUi_, &luaEditor_, editorH, scriptRunning, curLine, &luaLastHighlightLine_);
+    }
 
     const std::string err = lua_.LastError();
     if (!err.empty() && luaLastError_ != err) {

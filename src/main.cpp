@@ -323,8 +323,80 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
-    ImGui::StyleColorsDark();
-    g_baseStyle = ImGui::GetStyle();
+    // 应用浅色主题
+    ImGuiStyle& style = ImGui::GetStyle();
+    ImVec4* colors = style.Colors;
+    
+    // 浅色主题配色
+    colors[ImGuiCol_Text] = ImVec4(0.17f, 0.24f, 0.31f, 1.00f);  // 深灰色文本
+    colors[ImGuiCol_TextDisabled] = ImVec4(0.60f, 0.60f, 0.60f, 1.00f);
+    colors[ImGuiCol_WindowBg] = ImVec4(0.96f, 0.96f, 0.96f, 1.00f);  // 浅灰背景
+    colors[ImGuiCol_ChildBg] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);  // 纯白色子窗口
+    colors[ImGuiCol_PopupBg] = ImVec4(1.00f, 1.00f, 1.00f, 0.98f);
+    colors[ImGuiCol_Border] = ImVec4(0.88f, 0.88f, 0.88f, 1.00f);
+    colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    colors[ImGuiCol_FrameBg] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.91f, 0.95f, 0.98f, 1.00f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.82f, 0.91f, 0.98f, 1.00f);
+    colors[ImGuiCol_TitleBg] = ImVec4(0.96f, 0.96f, 0.96f, 1.00f);
+    colors[ImGuiCol_TitleBgActive] = ImVec4(0.82f, 0.91f, 0.98f, 1.00f);
+    colors[ImGuiCol_TitleBgCollapsed] = ImVec4(1.00f, 1.00f, 1.00f, 0.51f);
+    colors[ImGuiCol_MenuBarBg] = ImVec4(0.96f, 0.96f, 0.96f, 1.00f);
+    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.98f, 0.98f, 0.98f, 0.53f);
+    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.69f, 0.69f, 0.69f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.49f, 0.49f, 0.49f, 0.80f);
+    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.49f, 0.49f, 0.49f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.20f, 0.56f, 0.86f, 1.00f);  // 蓝色勾选
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.20f, 0.56f, 0.86f, 0.78f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.16f, 0.48f, 0.78f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.20f, 0.56f, 0.86f, 1.00f);  // 蓝色按钮
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.16f, 0.48f, 0.78f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.13f, 0.42f, 0.71f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.20f, 0.56f, 0.86f, 0.31f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.20f, 0.56f, 0.86f, 0.80f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.20f, 0.56f, 0.86f, 1.00f);
+    colors[ImGuiCol_Separator] = ImVec4(0.88f, 0.88f, 0.88f, 1.00f);
+    colors[ImGuiCol_SeparatorHovered] = ImVec4(0.20f, 0.56f, 0.86f, 0.78f);
+    colors[ImGuiCol_SeparatorActive] = ImVec4(0.20f, 0.56f, 0.86f, 1.00f);
+    colors[ImGuiCol_ResizeGrip] = ImVec4(0.20f, 0.56f, 0.86f, 0.20f);
+    colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.20f, 0.56f, 0.86f, 0.67f);
+    colors[ImGuiCol_ResizeGripActive] = ImVec4(0.20f, 0.56f, 0.86f, 0.95f);
+    colors[ImGuiCol_Tab] = ImVec4(0.91f, 0.95f, 0.98f, 0.86f);
+    colors[ImGuiCol_TabHovered] = ImVec4(0.20f, 0.56f, 0.86f, 0.80f);
+    colors[ImGuiCol_TabActive] = ImVec4(0.20f, 0.56f, 0.86f, 1.00f);
+    colors[ImGuiCol_TabUnfocused] = ImVec4(0.96f, 0.96f, 0.96f, 0.97f);
+    colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.82f, 0.91f, 0.98f, 1.00f);
+    colors[ImGuiCol_PlotLines] = ImVec4(0.39f, 0.39f, 0.39f, 1.00f);
+    colors[ImGuiCol_PlotLinesHovered] = ImVec4(1.00f, 0.43f, 0.35f, 1.00f);
+    colors[ImGuiCol_PlotHistogram] = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
+    colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.45f, 0.00f, 1.00f);
+    colors[ImGuiCol_TableHeaderBg] = ImVec4(0.78f, 0.87f, 0.98f, 1.00f);
+    colors[ImGuiCol_TableBorderStrong] = ImVec4(0.57f, 0.57f, 0.64f, 1.00f);
+    colors[ImGuiCol_TableBorderLight] = ImVec4(0.68f, 0.68f, 0.74f, 1.00f);
+    colors[ImGuiCol_TableRowBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    colors[ImGuiCol_TableRowBgAlt] = ImVec4(0.30f, 0.30f, 0.35f, 0.09f);
+    colors[ImGuiCol_TextSelectedBg] = ImVec4(0.20f, 0.56f, 0.86f, 0.35f);
+    colors[ImGuiCol_DragDropTarget] = ImVec4(0.26f, 0.59f, 0.98f, 0.95f);
+    colors[ImGuiCol_NavHighlight] = ImVec4(0.26f, 0.59f, 0.98f, 0.80f);
+    colors[ImGuiCol_NavWindowingHighlight] = ImVec4(0.70f, 0.70f, 0.70f, 0.70f);
+    colors[ImGuiCol_NavWindowingDimBg] = ImVec4(0.20f, 0.20f, 0.20f, 0.20f);
+    colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.20f, 0.20f, 0.20f, 0.35f);
+    
+    // 优化样式参数
+    style.WindowPadding = ImVec2(12.0f, 12.0f);
+    style.FramePadding = ImVec2(8.0f, 6.0f);
+    style.ItemSpacing = ImVec2(10.0f, 8.0f);
+    style.ItemInnerSpacing = ImVec2(6.0f, 6.0f);
+    style.IndentSpacing = 22.0f;
+    style.ScrollbarSize = 16.0f;
+    style.GrabMinSize = 12.0f;
+    style.WindowBorderSize = 1.0f;
+    style.ChildBorderSize = 1.0f;
+    style.PopupBorderSize = 1.0f;
+    style.FrameBorderSize = 1.0f;
+    style.TabBorderSize = 0.0f;
+    
+    g_baseStyle = style;
     g_uiDpiScale = DpiScaleFromDpi(QueryDpiForWindow(hwnd));
     ApplyDpiToImGui(g_uiDpiScale);
 
@@ -352,7 +424,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
         app.OnFrame();
 
         ImGui::Render();
-        const float clear_color[4] = { 0.08f, 0.09f, 0.10f, 1.00f };
+        const float clear_color[4] = { 0.96f, 0.96f, 0.96f, 1.00f };  // 浅灰色背景
         g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, nullptr);
         g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());

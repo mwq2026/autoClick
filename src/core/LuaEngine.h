@@ -4,6 +4,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 struct lua_State;
 
@@ -11,6 +12,13 @@ class Replayer;
 
 class LuaEngine {
 public:
+    struct LuaApiDoc {
+        const char* name;
+        const char* signature;
+        const char* group;
+        const char* brief;
+    };
+
     LuaEngine();
     ~LuaEngine();
 
@@ -28,6 +36,7 @@ public:
     bool IsRunning() const;
     int CurrentLine() const;
     std::string LastError() const;
+    static const std::vector<LuaApiDoc>& ApiDocs();
 
 private:
     static int L_Playback(lua_State* L);
@@ -37,6 +46,44 @@ private:
     static int L_SetSpeed(lua_State* L);
     static int L_WaitMs(lua_State* L);
     static int L_WaitUs(lua_State* L);
+    static int L_ActivateWindow(lua_State* L);
+    static int L_WindowIsValid(lua_State* L);
+    static int L_WindowFromPoint(lua_State* L);
+    static int L_WindowForeground(lua_State* L);
+    static int L_WindowFind(lua_State* L);
+    static int L_WindowFindAll(lua_State* L);
+    static int L_WindowWait(lua_State* L);
+    static int L_WindowTitle(lua_State* L);
+    static int L_WindowClass(lua_State* L);
+    static int L_WindowPid(lua_State* L);
+    static int L_WindowRect(lua_State* L);
+    static int L_WindowClientRect(lua_State* L);
+    static int L_WindowActivate(lua_State* L);
+    static int L_WindowActivateAt(lua_State* L);
+    static int L_WindowSetTopmost(lua_State* L);
+    static int L_WindowBringToTop(lua_State* L);
+    static int L_WindowSendToBack(lua_State* L);
+    static int L_WindowShow(lua_State* L);
+    static int L_WindowHide(lua_State* L);
+    static int L_WindowMinimize(lua_State* L);
+    static int L_WindowMaximize(lua_State* L);
+    static int L_WindowRestore(lua_State* L);
+    static int L_WindowMove(lua_State* L);
+    static int L_WindowResize(lua_State* L);
+    static int L_WindowSetRect(lua_State* L);
+    static int L_WindowClose(lua_State* L);
+    static int L_WindowCloseForce(lua_State* L);
+    static int L_ProcessStart(lua_State* L);
+    static int L_ProcessIsRunning(lua_State* L);
+    static int L_ProcessWait(lua_State* L);
+    static int L_ProcessKill(lua_State* L);
+    static int L_ClipboardSet(lua_State* L);
+    static int L_ClipboardGet(lua_State* L);
+    static int L_ScreenSize(lua_State* L);
+    static int L_CursorPos(lua_State* L);
+    static int L_CursorSet(lua_State* L);
+    static int L_PixelGet(lua_State* L);
+    static int L_ColorWait(lua_State* L);
     static int L_MouseMove(lua_State* L);
     static int L_MouseDown(lua_State* L);
     static int L_MouseUp(lua_State* L);

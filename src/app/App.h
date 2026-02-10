@@ -11,6 +11,21 @@
 #include "core/Recorder.h"
 #include "core/Replayer.h"
 
+struct LuaScriptUiState {
+    bool docsOpen{ true };
+    std::string docsFilter;
+    int docsSelected{ -1 };
+
+    bool assistEnabled{ true };
+    bool completionOpen{ false };
+    int completionCursorPos{ 0 };
+    int completionWordStart{ 0 };
+    std::string completionPrefix;
+    std::vector<int> completionMatches;
+    int completionSelected{ 0 };
+    std::string completionPendingInsert;
+};
+
 class App {
 public:
     App(HINSTANCE hInstance, HWND hwnd);
@@ -82,4 +97,5 @@ private:
 
     bool minimizeOnScriptRun_{ true };
     bool scriptMinimized_{ false };
+    LuaScriptUiState luaUi_{};
 };

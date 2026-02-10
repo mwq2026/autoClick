@@ -80,6 +80,7 @@ add_executable(AutoClickerPro
   src/core/Recorder.cpp
   src/core/Replayer.cpp
   src/core/TrcIO.cpp
+  src/core/WinAutomation.cpp
   "${ACP_GENERATED_DIR}/app.rc"
   src/resources/resource.h
 )
