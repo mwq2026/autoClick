@@ -473,7 +473,9 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
 
     ImGui::BeginChild("##lua_editor_child", ImVec2(-1, height), true, ImGuiWindowFlags_HorizontalScrollbar);
     const ImVec2 origin = ImGui::GetCursorScreenPos();
-    const float lineH = ImGui::GetTextLineHeightWithSpacing();
+    // CRITICAL: InputTextMultiline internally uses FontSize (GetTextLineHeight) for line spacing,
+    // NOT GetTextLineHeightWithSpacing. We must match this exactly for alignment.
+    const float lineH = ImGui::GetTextLineHeight();
 
     int lineCount = 1;
     for (char ch : *text) if (ch == '\n') ++lineCount;
@@ -508,13 +510,8 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
 
     const ImVec2 fp = ImGui::GetStyle().FramePadding;
     const float textStartX = itemMin.x + fp.x;
-    // Correct Y alignment with ImGui's internal text rendering:
-    // InputTextMultiline's BeginChildFrame creates a child window with WindowPadding = FramePadding.
-    // GetItemRectMin() returns the frame's outer edge. The child window is inside the frame,
-    // and text content starts at childWindowPos + WindowPadding.
-    // The frame border offset + window padding = approximately fp.y + a small border.
-    // Use origin.y (the outer child's content start) as reference instead of itemMin,
-    // since origin is more stable across different border/padding configurations.
+    // InputTextMultiline creates a child window at itemMin with WindowPadding=(0,0),
+    // then manually offsets CursorPos by FramePadding. So text starts at itemMin + fp.
     const float textStartY = itemMin.y + fp.y;
 
     // Compute cursor line (used by highlight + popup)
@@ -552,19 +549,24 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
                 ImVec2(winPos.x + gutter - 4.0f * s, winPos.y + winSize.y),
                 IM_COL32(60, 55, 90, 150), 1.0f);
 
+    // Vertical padding for highlight rects: text glyphs have ascent/descent so the
+    // visual center sits slightly above the mathematical center of [y, y+lineH].
+    // Extending the rect downward by a small amount makes text look vertically centered.
+    const float hlPadBot = lineH * 0.15f;
+
     // Current cursor line highlight
     if (ui && editorActive && !readOnly) {
         const float cy = textStartY + cursorLine * lineH;
         fg->AddRectFilled(
             ImVec2(winPos.x + gutter - 4.0f * s, cy),
-            ImVec2(winPos.x + winSize.x, cy + lineH),
+            ImVec2(winPos.x + winSize.x, cy + lineH + hlPadBot),
             IM_COL32(70, 65, 120, 60));
     }
 
     // Execution line highlight
     if (highlightLine > 0) {
         const float y = textStartY + (highlightLine - 1) * lineH;
-        fg->AddRectFilled(ImVec2(winPos.x, y), ImVec2(winPos.x + winSize.x, y + lineH), IM_COL32(100, 80, 255, 50));
+        fg->AddRectFilled(ImVec2(winPos.x, y), ImVec2(winPos.x + winSize.x, y + lineH + hlPadBot), IM_COL32(100, 80, 255, 50));
     }
 
     // Selection highlight — drawn on foreground to align perfectly with our syntax text
@@ -598,7 +600,7 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
                     if (selMax > lineEndIdx)
                         xEnd = std::max(xEnd + selFontSz * 0.5f, xEnd); // small extension for newline
                     const float ly = textStartY + lineIdx * lineH;
-                    fg->AddRectFilled(ImVec2(xStart, ly), ImVec2(xEnd, ly + lineH),
+                    fg->AddRectFilled(ImVec2(xStart, ly), ImVec2(xEnd, ly + lineH + hlPadBot),
                         IM_COL32(56, 84, 153, 130));
                 }
                 lineIdx++;
@@ -821,19 +823,12 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
         if (docs[detailIdx].brief)
             fg->AddText(ImVec2(popupX + pad, cy), IM_COL32(166, 173, 199, 230), docs[detailIdx].brief);
         cy += pfontSz + 4.0f * s;
-        fg->AddText(ImVec2(popupX + pad, cy), IM_COL32(115, 122, 148, 153), "Tab 补全 | Esc 关闭 | 点击插入");
+        fg->AddText(ImVec2(popupX + pad, cy), IM_COL32(115, 122, 148, 153), "↑↓ 选择 | Enter 补全 | Esc 关闭");
 
         fg->PopClipRect();
 
-        // Keyboard navigation
-        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) && ui->completionSelected < maxItems - 1)
-            ui->completionSelected++;
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && ui->completionSelected > 0)
-            ui->completionSelected--;
-        if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Tab)) {
-            const char* nm = docs[ui->completionMatches[ui->completionSelected]].name;
-            if (nm) ui->completionPendingInsert = nm;
-        }
+        // Keyboard navigation is handled in LuaEditorInputCallback to prevent
+        // InputText from consuming Up/Down/Enter keys before we can intercept them.
     }
 
     if (highlightLine > 0 && lastScrollToLine && *lastScrollToLine != highlightLine) {
@@ -938,6 +933,29 @@ static int LuaEditorInputCallback(ImGuiInputTextCallbackData* data) {
         ui->selectionStart = data->CursorPos;
         ui->selectionEnd = data->CursorPos;
         return 0;
+    }
+    // Intercept Up/Down/Enter/Tab when completion popup is open.
+    // We must do this inside the callback to prevent InputText from consuming
+    // these keys (moving the cursor). IsKeyPressed outside fires AFTER InputText.
+    if (ui->completionOpen && !ui->completionMatches.empty() && ui->assistEnabled) {
+        const int maxItems = std::min((int)ui->completionMatches.size(), 50);
+        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
+            if (ui->completionSelected < maxItems - 1) ui->completionSelected++;
+            // Don't update cursor pos — suppress the key from InputText
+            return 1;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
+            if (ui->completionSelected > 0) ui->completionSelected--;
+            return 1;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter) || ImGui::IsKeyPressed(ImGuiKey_Tab)) {
+            const auto& docs = LuaEngine::ApiDocs();
+            const int sel = std::clamp(ui->completionSelected, 0, maxItems - 1);
+            const int di = ui->completionMatches[sel];
+            const char* nm = docs[di].name;
+            if (nm) ui->completionPendingInsert = nm;
+            return 1;
+        }
     }
     // Track cursor and selection position (needed for line highlight + selection rendering)
     ui->completionCursorPos = data->CursorPos;
@@ -1493,6 +1511,8 @@ void App::DrawStatusBar() {
 void App::DrawBlockInputConfirmModal() {
     if (blockInputConfirmOpen_) { blockInputUnderstood_ = false; ImGui::OpenPopup("确认屏蔽系统输入"); blockInputConfirmOpen_ = false; }
     bool open = true;
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.12f, 0.10f, 0.25f, 0.95f));
     if (ImGui::BeginPopupModal("确认屏蔽系统输入", &open, ImGuiWindowFlags_AlwaysAutoResize)) {
         const float s = UiScale();
@@ -1524,6 +1544,9 @@ bool App::ShouldExit() const { return exitConfirmed_; }
 void App::DrawExitConfirmModal() {
     if (exitConfirmOpen_) { ImGui::OpenPopup("退出确认"); exitConfirmOpen_ = false; }
     bool open = true;
+    // Center the modal on the viewport every frame so it stays centered in fullscreen
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.12f, 0.10f, 0.25f, 0.95f));
     if (ImGui::BeginPopupModal("退出确认", &open, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
         const float s = UiScale();
