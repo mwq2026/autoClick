@@ -84,6 +84,10 @@ private:
     static std::string ReadTextFile(const std::wstring& filename);
     static bool WriteTextFile(const std::wstring& filename, const std::string& content);
 
+    // Config save/load
+    void LoadConfig();
+    void SaveConfig();
+
     HINSTANCE hInstance_{};
     HWND hwnd_{};
 

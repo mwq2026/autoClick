@@ -1,3 +1,4 @@
+#include <cmath>
 #include <cstdint>
 #include <fstream>
 #include <string>
@@ -46,31 +47,56 @@ int main(int argc, char** argv) {
     const int w = 64;
     const int h = 64;
  
-    const uint32_t bgOuter = ARGB(255, 38, 45, 56);
-    const uint32_t accent0 = ARGB(255, 35, 161, 220);
-    const uint32_t accent1 = ARGB(255, 16, 123, 170);
-    const uint32_t white = ARGB(235, 255, 255, 255);
+    // New logo colors: deep purple gradient with glow
+    const uint32_t glowRing = ARGB(76, 100, 80, 220);      // Outer breathing glow (30% alpha)
+    const uint32_t purpleOuter = ARGB(255, 45, 30, 110);   // Deep indigo
+    const uint32_t purpleInner = ARGB(255, 70, 50, 160);   // Vivid purple
+    const uint32_t highlight = ARGB(60, 120, 100, 220);    // Top-left 3D highlight
+    const uint32_t borderRing = ARGB(120, 140, 120, 255);  // Thin bright border
+    const uint32_t arrowColor = ARGB(255, 237, 247, 255);  // Bright cyan-white arrow
  
-    std::vector<uint32_t> pixels(static_cast<size_t>(w) * static_cast<size_t>(h), bgOuter);
+    std::vector<uint32_t> pixels(static_cast<size_t>(w) * static_cast<size_t>(h), 0);
  
     const float cx = 32.0f;
     const float cy = 32.0f;
-    const float rOuter = 30.0f;
-    const float rInner = 26.0f;
+    const float rGlow = 33.0f;      // Outer glow ring (110% of main)
+    const float rOuter = 30.0f;     // Main circle outer (92% radius)
+    const float rInner = 25.5f;     // Inner gradient (78% radius)
+    const float rHighlight = 12.5f; // Top-left highlight (38% radius)
+    const float rBorder = 30.0f;    // Border ring (same as outer)
  
+    // Draw layers from back to front
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
             const float fx = static_cast<float>(x) + 0.5f;
             const float fy = static_cast<float>(y) + 0.5f;
             const float dx = fx - cx;
             const float dy = fy - cy;
-            const float d2 = dx * dx + dy * dy;
-            if (d2 <= rInner * rInner) {
-                const float t = (dy / rInner + 1.0f) * 0.5f;
-                pixels[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)] = Lerp(accent1, accent0, t);
-            } else if (d2 <= rOuter * rOuter) {
-                pixels[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)] = bgOuter;
+            const float d = sqrtf(dx * dx + dy * dy);
+            
+            // Layer 1: Outer glow ring
+            if (d <= rGlow) {
+                if (d > rOuter) {
+                    pixels[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)] = glowRing;
+                } else if (d <= rInner) {
+                    // Layer 2: Inner purple gradient
+                    pixels[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)] = purpleInner;
+                } else {
+                    // Layer 3: Outer purple gradient
+                    pixels[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)] = purpleOuter;
+                }
+                
+                // Layer 4: Top-left highlight for 3D feel
+                const float hx = fx - (cx - rOuter * 0.18f);
+                const float hy = fy - (cy - rOuter * 0.18f);
+                const float hd = sqrtf(hx * hx + hy * hy);
+                if (hd <= rHighlight && d <= rOuter) {
+                    // Blend highlight over existing color
+                    const uint32_t base = pixels[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)];
+                    pixels[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)] = Lerp(base, highlight, 0.3f);
+                }
             } else {
+                // Transparent background
                 pixels[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)] = 0;
             }
         }
@@ -96,15 +122,38 @@ int main(int argc, char** argv) {
         return (u >= 0.0f) && (v >= 0.0f) && (u + v <= 1.0f);
     };
  
-    const float ax = 26.0f, ay = 22.0f;
-    const float bx = 26.0f, by = 42.0f;
-    const float cx2 = 44.0f, cy2 = 32.0f;
+    // Triangle arrow pointing upper-left (like DrawAnimatedCursor)
+    // Arrow size: 42% of radius
+    const float sz = rOuter * 0.42f;
+    const float ax = cx - sz * 0.50f;  // Tip upper-left
+    const float ay = cy - sz * 0.55f;
+    const float bx = cx - sz * 0.50f;  // Bottom-left
+    const float by = cy + sz * 0.60f;
+    const float cx2 = cx + sz * 0.55f; // Bottom-right
+    const float cy2 = cy + sz * 0.10f;
+    
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
             const float fx = static_cast<float>(x) + 0.5f;
             const float fy = static_cast<float>(y) + 0.5f;
             if (insideTri(fx, fy, ax, ay, bx, by, cx2, cy2)) {
-                pixels[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)] = white;
+                pixels[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)] = arrowColor;
+            }
+        }
+    }
+    
+    // Add thin bright border ring on top
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const float fx = static_cast<float>(x) + 0.5f;
+            const float fy = static_cast<float>(y) + 0.5f;
+            const float dx = fx - cx;
+            const float dy = fy - cy;
+            const float d = sqrtf(dx * dx + dy * dy);
+            
+            // Draw border ring (1-2 pixel width at radius)
+            if (d >= rBorder - 1.0f && d <= rBorder + 0.5f) {
+                pixels[static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)] = borderRing;
             }
         }
     }
