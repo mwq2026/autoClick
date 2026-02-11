@@ -4,6 +4,7 @@
 #include <cstring>
 #include <windows.h>
 
+#include "core/Logger.h"
 #include "core/TrcIO.h"
 
 Recorder::Recorder() {
@@ -18,11 +19,13 @@ void Recorder::Start() {
     Clear();
     recording_.store(true, std::memory_order_release);
     StartDrainThread();
+    LOG_INFO("Recorder::Start", "Recording started");
 }
 
 void Recorder::Stop() {
     recording_.store(false, std::memory_order_release);
     StopDrainThread();
+    LOG_INFO("Recorder::Stop", "Recording stopped, total events=%zu", events_.size());
 }
 
 bool Recorder::IsRecording() const {
@@ -55,12 +58,18 @@ bool Recorder::SaveToFile(const std::wstring& filename) const {
         std::scoped_lock lock(eventsMutex_);
         copy = events_;
     }
-    return trc::WriteTrcFile(filename, copy, nullptr);
+    bool ok = trc::WriteTrcFile(filename, copy, nullptr);
+    if (ok) LOG_INFO("Recorder::SaveToFile", "Saved %zu events", copy.size());
+    else LOG_ERROR("Recorder::SaveToFile", "Failed to save file");
+    return ok;
 }
 
 bool Recorder::LoadFromFile(const std::wstring& filename) {
     trc::TrcReadResult rr{};
-    if (!trc::ReadTrcFile(filename, &rr)) return false;
+    if (!trc::ReadTrcFile(filename, &rr)) {
+        LOG_ERROR("Recorder::LoadFromFile", "Failed to read trc file");
+        return false;
+    }
 
     {
         std::scoped_lock lock(eventsMutex_);
@@ -68,6 +77,7 @@ bool Recorder::LoadFromFile(const std::wstring& filename) {
     }
     ringWrite_.store(0, std::memory_order_release);
     ringRead_.store(0, std::memory_order_release);
+    LOG_INFO("Recorder::LoadFromFile", "Loaded %zu events", events_.size());
     return true;
 }
 

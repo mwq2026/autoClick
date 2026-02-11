@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include "core/HighResClock.h"
+#include "core/Logger.h"
 #include "core/Recorder.h"
 #include "core/TrcFormat.h"
 
@@ -28,13 +29,16 @@ bool Hooks::Install(Recorder* recorder) {
     key_ = SetWindowsHookExW(WH_KEYBOARD_LL, &Hooks::KeyProc, hinst, 0);
 
     if (!mouse_ || !key_) {
+        LOG_ERROR("Hooks::Install", "Failed to install hooks (mouse=%p, key=%p)", mouse_, key_);
         Uninstall();
         return false;
     }
+    LOG_INFO("Hooks::Install", "Hooks installed successfully");
     return true;
 }
 
 void Hooks::Uninstall() {
+    if (mouse_ || key_) LOG_INFO("Hooks::Uninstall", "Uninstalling hooks");
     if (mouse_) {
         UnhookWindowsHookEx(mouse_);
         mouse_ = nullptr;

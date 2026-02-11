@@ -7,10 +7,12 @@
 #include <imgui.h>
 
 #include "core/Hooks.h"
+#include "core/Logger.h"
 #include "core/LuaEngine.h"
 #include "core/OverlayWindow.h"
 #include "core/Recorder.h"
 #include "core/Replayer.h"
+#include "core/Scheduler.h"
 
 struct LuaScriptUiState {
     bool docsOpen{ true };
@@ -48,6 +50,8 @@ public:
 
     void OnFrame();
     void OnHotkey();
+    void OnHotkeyStartResume();
+    void OnHotkeyPause();
     void RequestExit();
     bool ShouldExit() const;
 
@@ -56,11 +60,17 @@ private:
     void DrawBackground();
     void DrawSimpleMode();
     void DrawAdvancedMode();
+    void DrawSchedulerMode();
+    void DrawLogMode();
     void DrawStatusBar();
     void DrawBlockInputConfirmModal();
     void DrawExitConfirmModal();
     void DrawAnimatedCursor(ImVec2 center, float radius, float time);
     void UpdateTaskbarIcon();
+
+    // Scheduler
+    void OnSchedulerTaskFired(const ScheduledTask& task);
+    void SchedulerExecuteTask(const ScheduledTask& task);
 
     // Status helpers
     void SetStatusInfo(const std::string& text);
@@ -90,6 +100,13 @@ private:
 
     HINSTANCE hInstance_{};
     HWND hwnd_{};
+
+    // Window geometry (persisted)
+    int savedWinX_{ -1 };
+    int savedWinY_{ -1 };
+    int savedWinW_{ 0 };
+    int savedWinH_{ 0 };
+    bool savedWinMaximized_{ false };
 
     Recorder recorder_;
     Hooks hooks_;
@@ -139,9 +156,32 @@ private:
     float lastIconUpdateTime_{ -1.0f };
     HICON taskbarIcon_{ nullptr };
 
+    // Scheduler
+    Scheduler scheduler_;
+
+    // Scheduler UI state
+    ScheduledTask editTask_{};
+    int schedSelectedTask_{ -1 };
+    int schedDetailTab_{ 0 };       // 0=info, 1=history
+
+    // Splitter ratios (persisted)
+    float simpleCol1Ratio_{ 0.30f };  // 录制回放: left column
+    float simpleCol2Ratio_{ 0.35f };  // 录制回放: middle column
+    float schedCol1Ratio_{ 0.50f };   // 定时任务: shared ratio for top & bottom
+
+    // Log UI state
+    int logFilterLevel_{ 1 };       // default: INFO
+    bool logAutoScroll_{ true };
+    bool logFileOutput_{ false };
+    std::string logFilePath_{ "autoclicker.log" };
+    int logMaxEntries_{ 10000 };
+
 public:
     // Screen rect of the scrollable editor area (set each frame by DrawLuaEditorWithLineNumbers)
     // WndProc uses this to decide whether to pass WM_MOUSEWHEEL to ImGui.
     RECT editorScreenRect_{ 0, 0, 0, 0 };
     bool editorRectValid_{ false };
+
+    void ApplySavedWindowGeometry();
+    void SaveWindowGeometry();
 };

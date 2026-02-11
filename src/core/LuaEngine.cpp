@@ -19,6 +19,7 @@ extern "C" {
 
 #include "core/Humanizer.h"
 #include "core/HighPrecisionWait.h"
+#include "core/Logger.h"
 #include "core/Recorder.h"
 #include "core/Replayer.h"
 #include "core/WinAutomation.h"
@@ -291,14 +292,17 @@ bool LuaEngine::Init(Replayer* replayer) {
     if (L_) return true;
     replayer_ = replayer;
     L_ = luaL_newstate();
-    if (!L_) return false;
+    if (!L_) {
+        LOG_ERROR("LuaEngine::Init", "Failed to create Lua state");
+        return false;
+    }
     luaL_openlibs(L_);
 
     lua_pushlightuserdata(L_, this);
     lua_setglobal(L_, "__acp_self");
 
     RegisterApi(L_);
-
+    LOG_INFO("LuaEngine::Init", "Lua engine initialized");
     return true;
 }
 
@@ -308,6 +312,7 @@ void LuaEngine::Shutdown() {
     lua_close(L_);
     L_ = nullptr;
     replayer_ = nullptr;
+    LOG_INFO("LuaEngine::Shutdown", "Lua engine shut down");
 }
 
 bool LuaEngine::RunString(const std::string& code, std::string* errorOut) {
@@ -350,12 +355,14 @@ bool LuaEngine::StartAsync(const std::string& code) {
 
     targetWindow_ = nullptr;
     std::string patchedCode = code;
+    LOG_INFO("LuaEngine::StartAsync", "Starting async script execution (%zu bytes)", code.size());
 
     worker_ = std::thread([this, code = std::move(patchedCode)] {
         lua_State* L = luaL_newstate();
         if (!L) {
             std::scoped_lock lock(errorMutex_);
             lastError_ = "failed to create lua state";
+            LOG_ERROR("LuaEngine::StartAsync", "Failed to create Lua state for async execution");
             running_.store(false, std::memory_order_release);
             return;
         }
@@ -372,6 +379,7 @@ bool LuaEngine::StartAsync(const std::string& code) {
                 std::scoped_lock lock(errorMutex_);
                 lastError_ = err ? err : "load error";
             }
+            LOG_ERROR("LuaEngine::StartAsync", "Script load error: %s", err ? err : "unknown");
             lua_pop(L, 1);
             lua_close(L);
             running_.store(false, std::memory_order_release);
@@ -384,7 +392,10 @@ bool LuaEngine::StartAsync(const std::string& code) {
                 std::scoped_lock lock(errorMutex_);
                 lastError_ = err ? err : "runtime error";
             }
+            LOG_ERROR("LuaEngine::StartAsync", "Script runtime error: %s", err ? err : "unknown");
             lua_pop(L, 1);
+        } else {
+            LOG_INFO("LuaEngine::StartAsync", "Script execution completed successfully");
         }
 
         lua_close(L);
@@ -394,6 +405,7 @@ bool LuaEngine::StartAsync(const std::string& code) {
 }
 
 void LuaEngine::StopAsync() {
+    LOG_INFO("LuaEngine::StopAsync", "Stopping async script execution");
     cancel_.store(true, std::memory_order_release);
     if (worker_.joinable()) worker_.join();
     running_.store(false, std::memory_order_release);

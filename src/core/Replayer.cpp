@@ -4,6 +4,7 @@
 #include <windows.h>
 
 #include "core/HighPrecisionWait.h"
+#include "core/Logger.h"
 
 static LONG NormalizeAbsoluteX(int x) {
     const int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -136,9 +137,13 @@ bool Replayer::Start(std::vector<trc::RawEvent> events, bool blockInput, double 
     speedFactor_.store(speedFactor, std::memory_order_release);
 
     stop_.store(false, std::memory_order_release);
+    paused_.store(false, std::memory_order_release);
     running_.store(true, std::memory_order_release);
     current_.store(0, std::memory_order_release);
     total_.store(static_cast<uint32_t>(events.size()), std::memory_order_release);
+
+    LOG_INFO("Replayer::Start", "Replay starting: %zu events, speed=%.1f, blockInput=%d",
+        events.size(), speedFactor, blockInput ? 1 : 0);
 
     worker_ = std::thread([this, ev = std::move(events), blockInput]() mutable {
         ThreadMain(std::move(ev), blockInput);
@@ -147,6 +152,7 @@ bool Replayer::Start(std::vector<trc::RawEvent> events, bool blockInput, double 
 }
 
 void Replayer::Stop() {
+    LOG_INFO("Replayer::Stop", "Replay stop requested");
     stop_.store(true, std::memory_order_release);
     if (worker_.joinable()) worker_.join();
     running_.store(false, std::memory_order_release);
@@ -154,6 +160,20 @@ void Replayer::Stop() {
 
 bool Replayer::IsRunning() const {
     return running_.load(std::memory_order_acquire);
+}
+
+void Replayer::Pause() {
+    paused_.store(true, std::memory_order_release);
+    LOG_INFO("Replayer::Pause", "Replay paused");
+}
+
+void Replayer::Resume() {
+    paused_.store(false, std::memory_order_release);
+    LOG_INFO("Replayer::Resume", "Replay resumed");
+}
+
+bool Replayer::IsPaused() const {
+    return paused_.load(std::memory_order_acquire);
 }
 
 void Replayer::SetDryRun(bool dryRun) {
@@ -182,10 +202,21 @@ float Replayer::Progress01() const {
 void Replayer::ThreadMain(std::vector<trc::RawEvent> events, bool blockInput) {
     const BOOL canBlock = blockInput ? BlockInput(TRUE) : TRUE;
     const bool blocked = (blockInput && canBlock == TRUE);
-    if (blockInput) blockInputState_.store(blocked ? 1 : -1, std::memory_order_release);
+    if (blockInput) {
+        blockInputState_.store(blocked ? 1 : -1, std::memory_order_release);
+        if (blocked) LOG_INFO("Replayer::ThreadMain", "BlockInput enabled");
+        else LOG_WARN("Replayer::ThreadMain", "BlockInput failed (may need admin)");
+    }
 
     const bool dryRun = dryRun_.load(std::memory_order_acquire);
     for (uint32_t i = 0; i < events.size(); ++i) {
+        if (stop_.load(std::memory_order_acquire)) break;
+
+        // Wait while paused
+        while (paused_.load(std::memory_order_acquire)) {
+            if (stop_.load(std::memory_order_acquire)) break;
+            Sleep(50);
+        }
         if (stop_.load(std::memory_order_acquire)) break;
 
         const double speed = speedFactor_.load(std::memory_order_acquire);
@@ -199,6 +230,8 @@ void Replayer::ThreadMain(std::vector<trc::RawEvent> events, bool blockInput) {
     if (blocked) BlockInput(FALSE);
     if (blocked) blockInputState_.store(0, std::memory_order_release);
     running_.store(false, std::memory_order_release);
+    LOG_INFO("Replayer::ThreadMain", "Replay finished, played %u/%zu events",
+        current_.load(), events.size());
 }
 
 void Replayer::InjectEvent(const trc::RawEvent& e) {

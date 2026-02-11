@@ -18,6 +18,9 @@ public:
     bool Start(std::vector<trc::RawEvent> events, bool blockInput, double speedFactor);
     void Stop();
     bool IsRunning() const;
+    void Pause();
+    void Resume();
+    bool IsPaused() const;
 
     void SetDryRun(bool dryRun);
     int BlockInputState() const;
@@ -33,6 +36,7 @@ private:
 
     std::atomic<bool> running_{ false };
     std::atomic<bool> stop_{ false };
+    std::atomic<bool> paused_{ false };
 
     std::atomic<double> speedFactor_{ 1.0 };
     std::atomic<bool> dryRun_{ false };

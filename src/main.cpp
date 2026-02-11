@@ -297,7 +297,12 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         if ((wParam & 0xfff0) == SC_KEYMENU) return 0;
         break;
     case WM_HOTKEY:
-        if (g_app) g_app->OnHotkey();
+        if (g_app) {
+            int hkId = (int)wParam;
+            if (hkId == 1) g_app->OnHotkey();
+            else if (hkId == 2) g_app->OnHotkeyStartResume();
+            else if (hkId == 3) g_app->OnHotkeyPause();
+        }
         return 0;
     case WM_CLOSE:
         if (g_app) {
@@ -355,6 +360,8 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
     UpdateWindow(hwnd);
 
     RegisterHotKey(hwnd, 1, MOD_CONTROL, VK_F12);
+    RegisterHotKey(hwnd, 2, MOD_CONTROL, VK_F10);
+    RegisterHotKey(hwnd, 3, MOD_CONTROL, VK_F11);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -450,6 +457,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
 
     App app(hInstance, hwnd);
     g_app = &app;
+    app.ApplySavedWindowGeometry();
 
     bool done = false;
     while (!done) {
@@ -482,6 +490,8 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
 
     g_app = nullptr;
     UnregisterHotKey(hwnd, 1);
+    UnregisterHotKey(hwnd, 2);
+    UnregisterHotKey(hwnd, 3);
 
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();

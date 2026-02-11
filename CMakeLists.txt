@@ -79,10 +79,12 @@ add_executable(AutoClickerPro
   src/core/Converter.cpp
   src/core/Hooks.cpp
   src/core/Humanizer.cpp
+  src/core/Logger.cpp
   src/core/LuaEngine.cpp
   src/core/OverlayWindow.cpp
   src/core/Recorder.cpp
   src/core/Replayer.cpp
+  src/core/Scheduler.cpp
   src/core/TrcIO.cpp
   src/core/WinAutomation.cpp
   "${ACP_GENERATED_DIR}/app.rc"
@@ -105,6 +107,7 @@ set_target_properties(AutoClickerPro PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAK
 add_executable(AutoClickerProTests
   tests/main.cpp
   src/core/Converter.cpp
+  src/core/Logger.cpp
   src/core/Recorder.cpp
   src/core/Replayer.cpp
   src/core/TrcIO.cpp
