@@ -138,4 +138,10 @@ private:
     // Taskbar icon animation
     float lastIconUpdateTime_{ -1.0f };
     HICON taskbarIcon_{ nullptr };
+
+public:
+    // Screen rect of the scrollable editor area (set each frame by DrawLuaEditorWithLineNumbers)
+    // WndProc uses this to decide whether to pass WM_MOUSEWHEEL to ImGui.
+    RECT editorScreenRect_{ 0, 0, 0, 0 };
+    bool editorRectValid_{ false };
 };

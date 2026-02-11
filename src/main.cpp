@@ -271,6 +271,18 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
     }
 
+    // Block mouse wheel outside the editor area to prevent toolbar/header scrolling.
+    // Only the Lua editor region should respond to the scroll wheel.
+    if ((msg == WM_MOUSEWHEEL || msg == WM_MOUSEHWHEEL) && g_app && g_app->editorRectValid_) {
+        POINT pt;
+        pt.x = (short)LOWORD(lParam);
+        pt.y = (short)HIWORD(lParam);
+        ScreenToClient(hWnd, &pt);
+        if (!PtInRect(&g_app->editorScreenRect_, pt)) {
+            return 0; // Swallow the scroll event
+        }
+    }
+
     if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam)) return true;
 
     switch (msg) {

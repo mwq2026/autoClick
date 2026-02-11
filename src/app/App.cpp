@@ -13,6 +13,7 @@
 
 #include <commdlg.h>
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include "core/Converter.h"
 #include "core/HighResClock.h"
@@ -471,7 +472,9 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
     // to guarantee perfect alignment with our syntax-highlighted text.
     ImGui::PushStyleColor(ImGuiCol_TextSelectedBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
 
-    ImGui::BeginChild("##lua_editor_child", ImVec2(-1, height), true, ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::BeginChild("##lua_editor_child", ImVec2(-1, height), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    // Force this wrapper child to never scroll — only the InputTextMultiline's internal child should scroll
+    ImGui::SetScrollY(0.0f);
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     // CRITICAL: InputTextMultiline internally uses FontSize (GetTextLineHeight) for line spacing,
     // NOT GetTextLineHeightWithSpacing. We must match this exactly for alignment.
@@ -480,7 +483,8 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
     int lineCount = 1;
     for (char ch : *text) if (ch == '\n') ++lineCount;
 
-    const float desiredEditorH = std::max(height, lineCount * lineH + 8.0f * s);
+    // InputTextMultiline fills the child and handles its own internal scrolling.
+    // We must NOT make this child scrollable — that creates a competing scrollbar.
     ImGui::SetCursorPosX(gutter);
     const ImGuiInputTextFlags ro = readOnly ? ImGuiInputTextFlags_ReadOnly : 0;
     const ImGuiInputTextFlags assistFlags = ImGuiInputTextFlags_CallbackAlways | ImGuiInputTextFlags_CallbackCompletion;
@@ -519,9 +523,9 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
     // Always use callback version to track cursor position (needed for line highlight).
     // The assistEnabled flag only controls whether completion suggestions are shown.
     if (!readOnly && ui) {
-        InputTextMultilineStringWithCallback("##luaeditor", text, ImVec2(-1, desiredEditorH), ro | assistFlags, LuaEditorInputCallback, ui);
+        InputTextMultilineStringWithCallback("##luaeditor", text, ImVec2(-1, -1), ro | assistFlags, LuaEditorInputCallback, ui);
     } else {
-        InputTextMultilineString("##luaeditor", text, ImVec2(-1, desiredEditorH), ro);
+        InputTextMultilineString("##luaeditor", text, ImVec2(-1, -1), ro);
     }
 
     // Now handle the suppressed popup keys
@@ -558,9 +562,23 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
 
     const ImVec2 fp = ImGui::GetStyle().FramePadding;
     const float textStartX = itemMin.x + fp.x;
-    // InputTextMultiline creates a child window at itemMin with WindowPadding=(0,0),
-    // then manually offsets CursorPos by FramePadding. So text starts at itemMin + fp.
-    const float textStartY = itemMin.y + fp.y;
+    // InputTextMultiline internally calls BeginChildEx(label, id, ...) which creates a child
+    // window named "parentName/##luaeditor_XXXXXXXX" (label + underscore + hex ID).
+    // We iterate context windows to find it robustly, matching by suffix.
+    float scrollY = 0.0f;
+    ImGuiWindow* editorInnerWin = nullptr;
+    {
+        ImGuiContext& ctx = *ImGui::GetCurrentContext();
+        for (int i = 0; i < ctx.Windows.Size; ++i) {
+            ImGuiWindow* w = ctx.Windows[i];
+            if (w && w->Name && strstr(w->Name, "/##luaeditor_")) {
+                editorInnerWin = w;
+                scrollY = w->Scroll.y;
+                break;
+            }
+        }
+    }
+    const float textStartY = itemMin.y + fp.y - scrollY;
 
     // Compute cursor line (used by highlight + popup)
     int cursorLine = 0;
@@ -569,7 +587,6 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
         for (int ci = 0; ci < cp; ++ci) if ((*text)[ci] == '\n') ++cursorLine;
     }
 
-    const float scrollY = ImGui::GetScrollY();
     const int first = std::max(0, (int)(scrollY / lineH));
     const int visible = (int)(winSize.y / lineH) + 3;
     const int last = std::min(lineCount, first + visible);
@@ -894,7 +911,11 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
     }
 
     if (highlightLine > 0 && lastScrollToLine && *lastScrollToLine != highlightLine) {
-        ImGui::SetScrollFromPosY(textStartY + (highlightLine - 1) * lineH - winPos.y, 0.35f);
+        if (editorInnerWin) {
+            float targetY = (highlightLine - 1) * lineH;
+            float viewH = editorInnerWin->InnerRect.GetHeight();
+            editorInnerWin->Scroll.y = std::max(0.0f, targetY - viewH * 0.35f);
+        }
         *lastScrollToLine = highlightLine;
     }
     ImGui::EndChild();
@@ -1023,7 +1044,7 @@ static void DrawLuaDocsPanel(LuaScriptUiState* ui, float height, bool disabled) 
     if (!ui) return;
     const auto& docs = LuaEngine::ApiDocs();
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.08f, 0.20f, 0.70f));
-    ImGui::BeginChild("##lua_docs_panel", ImVec2(-1, height), true);
+    ImGui::BeginChild("##lua_docs_panel", ImVec2(-1, height), true, ImGuiWindowFlags_NoScrollbar);
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.78f, 0.75f, 0.95f, 1.0f));
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted("Lua API");
@@ -1110,11 +1131,17 @@ void App::OnFrame() {
     ImGui::SetNextWindowPos(viewport->WorkPos, ImGuiCond_Always);
     ImGui::SetNextWindowSize(viewport->WorkSize, ImGuiCond_Always);
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0)); // transparent - we draw our own bg
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, ImVec4(0, 0, 0, 0));
     ImGui::Begin("AutoClicker-Pro", nullptr,
         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    ImGui::PopStyleColor();
+    ImGui::PopStyleColor(5);
+    // Force main window scroll to zero — prevents any accidental content overflow from showing a scrollbar
+    ImGui::SetScrollY(0.0f);
 
     // ═══════════════════════════════════════════════════════════════════════
     // HEADER BAR - gradient glass
@@ -1249,6 +1276,7 @@ static std::string FormatEvent(const trc::RawEvent& e) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 void App::DrawSimpleMode() {
+    editorRectValid_ = false;  // No editor in simple mode
     const float s = UiScale();
     const float availW = ImGui::GetContentRegionAvail().x;
     const float availH = ImGui::GetContentRegionAvail().y - 40.0f * s;
@@ -1382,9 +1410,6 @@ void App::DrawSimpleMode() {
 void App::DrawAdvancedMode() {
     const float s = UiScale();
     const bool scriptRunning = lua_.IsRunning();
-    const float availH = ImGui::GetContentRegionAvail().y - 40.0f * s;
-
-    ImGui::BeginChild("##adv_container", ImVec2(0, availH), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
     // Toolbar
     {
@@ -1502,7 +1527,15 @@ void App::DrawAdvancedMode() {
     // Editor + Docs
     ImGui::Spacing();
     const int curLine = scriptRunning ? lua_.CurrentLine() : 0;
-    const float editorH = ImGui::GetContentRegionAvail().y;
+    const float editorH = ImGui::GetContentRegionAvail().y - 40.0f * s;
+
+    // Record editor screen rect for WndProc scroll filtering
+    {
+        const ImVec2 cp = ImGui::GetCursorScreenPos();
+        const float ew = ImGui::GetContentRegionAvail().x;
+        editorScreenRect_ = { (LONG)cp.x, (LONG)cp.y, (LONG)(cp.x + ew), (LONG)(cp.y + editorH) };
+        editorRectValid_ = true;
+    }
 
     if (luaUi_.docsOpen) {
         if (ImGui::BeginTable("##lua_layout", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV, ImVec2(0, editorH))) {
@@ -1517,8 +1550,6 @@ void App::DrawAdvancedMode() {
     } else {
         DrawLuaEditorWithLineNumbers(&luaUi_, &luaEditor_, editorH, scriptRunning, curLine, &luaLastHighlightLine_);
     }
-
-    ImGui::EndChild();
 }
 
 // ─── Status bar ─────────────────────────────────────────────────────────────
