@@ -1112,7 +1112,8 @@ void App::OnFrame() {
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0)); // transparent - we draw our own bg
     ImGui::Begin("AutoClicker-Pro", nullptr,
         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus);
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleColor();
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1383,7 +1384,7 @@ void App::DrawAdvancedMode() {
     const bool scriptRunning = lua_.IsRunning();
     const float availH = ImGui::GetContentRegionAvail().y - 40.0f * s;
 
-    ImGui::BeginChild("##adv_container", ImVec2(0, availH), false);
+    ImGui::BeginChild("##adv_container", ImVec2(0, availH), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
     // Toolbar
     {
