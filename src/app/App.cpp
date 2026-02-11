@@ -1328,12 +1328,16 @@ void App::DrawSimpleMode() {
             const float btnW = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
             if (ImGui::Button("浏览...", ImVec2(btnW, 0))) {
                 wchar_t buf[MAX_PATH]{}; std::wstring w = Utf8ToWide(trcPath_); wcsncpy_s(buf, w.c_str(), _TRUNCATE);
-                if (OpenFileDialog(nullptr, buf, MAX_PATH, L"Trace File (*.trc)\0*.trc\0\0")) trcPath_ = WideToUtf8(std::wstring(buf));
+                if (OpenFileDialog(nullptr, buf, MAX_PATH, L"Trace File (*.trc)\0*.trc\0\0")) {
+                    trcPath_ = WideToUtf8(std::wstring(buf));
+                    if (recorder_.LoadFromFile(Utf8ToWide(trcPath_))) SetStatusOk("已加载");
+                    else SetStatusError("加载失败");
+                }
             }
             ImGui::SameLine();
             if (ImGui::Button("另存为", ImVec2(btnW, 0))) {
                 wchar_t buf[MAX_PATH]{}; std::wstring w = Utf8ToWide(trcPath_); wcsncpy_s(buf, w.c_str(), _TRUNCATE);
-                if (SaveFileDialog(nullptr, buf, MAX_PATH, L"Trace File (*.trc)\0*.trc\0\0")) { trcPath_ = WideToUtf8(std::wstring(buf)); recorder_.SaveToFile(Utf8ToWide(trcPath_)); SetStatusOk("已保存"); }
+                if (SaveFileDialog(nullptr, buf, MAX_PATH, L"Trace File (*.trc)\0*.trc\0\0")) { trcPath_ = WideToUtf8(std::wstring(buf)); recorder_.SaveToFile(Utf8ToWide(trcPath_)); SetStatusOk("已保存副本"); }
             }
             if (ImGui::Button("加载文件", ImVec2(-1, 0))) {
                 if (recorder_.LoadFromFile(Utf8ToWide(trcPath_))) SetStatusOk("已加载"); else SetStatusError("加载失败");
@@ -1390,8 +1394,14 @@ void App::DrawSimpleMode() {
                 if (!recorder_.Events().empty()) {
                     ImGui::Spacing();
                     if (GlowButton("保存录制", ImVec2(-1, btnH), IM_COL32(60, 120, 200, 255), IM_COL32(40, 100, 220, 255))) {
-                        if (recorder_.SaveToFile(Utf8ToWide(trcPath_))) SetStatusOk("已保存");
-                        else SetStatusError("保存失败");
+                        wchar_t buf[MAX_PATH]{};
+                        std::wstring w = Utf8ToWide(trcPath_);
+                        wcsncpy_s(buf, w.c_str(), _TRUNCATE);
+                        if (SaveFileDialog(nullptr, buf, MAX_PATH, L"Trace File (*.trc)\0*.trc\0\0")) {
+                            trcPath_ = WideToUtf8(std::wstring(buf));
+                            if (recorder_.SaveToFile(Utf8ToWide(trcPath_))) SetStatusOk("已保存");
+                            else SetStatusError("保存失败");
+                        }
                     }
                 }
             } else if (recorder_.IsRecording()) {
