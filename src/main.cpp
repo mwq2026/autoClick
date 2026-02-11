@@ -470,6 +470,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
         if (done) break;
 
         if (app.ShouldExit()) {
+            app.SaveWindowGeometry();   // Must capture before DestroyWindow
             DestroyWindow(hwnd);
             continue;
         }

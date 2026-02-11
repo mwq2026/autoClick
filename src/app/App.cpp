@@ -1253,26 +1253,7 @@ void App::OnFrame() {
                 mode_ == ti ? IM_COL32(255, 255, 255, 240) : IM_COL32(180, 170, 210, 200), tabLabels[ti]);
         }
 
-        // Hotkey hints - right aligned
-        {
-            const char* hints[] = { "Ctrl+F10 开始/继续", "Ctrl+F11 暂停", "Ctrl+F12 停止" };
-            const ImVec4 hintCols[] = {
-                ImVec4(0.5f, 0.9f, 0.6f, 0.7f),
-                ImVec4(1.0f, 0.85f, 0.4f, 0.7f),
-                ImVec4(1.0f, 0.6f, 0.6f, 0.7f)
-            };
-            float totalHintW = 0;
-            for (int hi = 0; hi < 3; ++hi) totalHintW += ImGui::CalcTextSize(hints[hi]).x;
-            totalHintW += 28.0f * s;
-
-            float hx = hs.x - totalHintW;
-            for (int hi = 0; hi < 3; ++hi) {
-                ImGui::SetCursorPosX(hx);
-                ImGui::SetCursorPosY((headerH - ImGui::GetTextLineHeight()) * 0.5f);
-                ImGui::TextColored(hintCols[hi], "%s", hints[hi]);
-                hx += ImGui::CalcTextSize(hints[hi]).x + 10.0f * s;
-            }
-        }
+        // (Hotkey hints moved to 录制回放 操作 card)
 
         ImGui::EndChild();
         ImGui::PopStyleVar(2);
@@ -1370,10 +1351,19 @@ void App::DrawSimpleMode() {
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.08f, 0.06f, 0.18f, 0.60f));
             ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4(0.45f, 0.30f, 0.90f, 1.0f));
-            ImGui::SetNextItemWidth(-1);
+            // Slider takes most of the width, input box on the right
+            const float inputW = 58.0f * s;
+            const float gap = 6.0f * s;
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - inputW - gap);
             if (ImGui::SliderFloat("##speed", &speedFactor_, 0.1f, 10.0f, "%.1fx")) replayer_.SetSpeed(speedFactor_);
-            ImGui::PopStyleColor(2);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("回放速度倍率 (0.1 - 10.0)");
+            ImGui::SameLine(0, gap);
+            ImGui::SetNextItemWidth(inputW);
+            if (ImGui::InputFloat("##speed_input", &speedFactor_, 0, 0, "%.1f")) {
+                speedFactor_ = std::clamp(speedFactor_, 0.1f, 10.0f);
+                replayer_.SetSpeed(speedFactor_);
+            }
+            ImGui::PopStyleColor(2);
             ImGui::Checkbox("屏蔽输入", &blockInput_);
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("回放时屏蔽物理键鼠输入");
         }
@@ -1396,6 +1386,14 @@ void App::DrawSimpleMode() {
                 ImGui::Spacing();
                 if (GlowButton("开始回放 (F10)", ImVec2(-1, btnH), IM_COL32(40, 160, 80, 255), IM_COL32(30, 200, 120, 255)))
                     StartReplay();
+                // Save button — visible when there are recorded events to save
+                if (!recorder_.Events().empty()) {
+                    ImGui::Spacing();
+                    if (GlowButton("保存录制", ImVec2(-1, btnH), IM_COL32(60, 120, 200, 255), IM_COL32(40, 100, 220, 255))) {
+                        if (recorder_.SaveToFile(Utf8ToWide(trcPath_))) SetStatusOk("已保存");
+                        else SetStatusError("保存失败");
+                    }
+                }
             } else if (recorder_.IsRecording()) {
                 const float pulse = 0.7f + 0.3f * sinf(animTime_ * 4.0f);
                 ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -1427,6 +1425,22 @@ void App::DrawSimpleMode() {
                 if (GlowButton("停止回放", ImVec2(-1, btnH), IM_COL32(200, 50, 50, 255), IM_COL32(220, 80, 60, 255)))
                     StopReplay();
             }
+            // Hotkey hints — one per line
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            const char* hkLabels[] = { "Ctrl+F10", "Ctrl+F11", "Ctrl+F12" };
+            const char* hkDescs[]  = { "开始/继续", "暂停", "停止" };
+            const ImVec4 hkCols[]  = {
+                ImVec4(0.5f, 0.9f, 0.6f, 0.8f),
+                ImVec4(1.0f, 0.85f, 0.4f, 0.8f),
+                ImVec4(1.0f, 0.6f, 0.6f, 0.8f)
+            };
+            for (int hi = 0; hi < 3; ++hi) {
+                ImGui::TextColored(hkCols[hi], "%s", hkLabels[hi]);
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.7f, 0.65f, 0.85f, 0.7f), "%s", hkDescs[hi]);
+            }
         }
         EndGlassCard();
 
@@ -1445,7 +1459,7 @@ void App::DrawSimpleMode() {
                     while (clipper.Step()) {
                         for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
                             const auto& evt = recorder_.Events()[i];
-                            ImGui::TextColored(ImVec4(0.45f, 0.40f, 0.65f, 0.8f), "%04d", i + 1);
+                            ImGui::TextColored(ImVec4(0.45f, 0.40f, 0.65f, 0.8f), "%06d", i + 1);
                             ImGui::SameLine();
                             ImGui::TextColored(ImVec4(0.82f, 0.80f, 0.92f, 1.0f), "%s", FormatEvent(evt).c_str());
                         }
@@ -2355,9 +2369,15 @@ void App::StartReplay() {
 }
 void App::StartReplayConfirmed() {
     if (recorder_.IsRecording()) StopRecording();
-    if (!recorder_.LoadFromFile(Utf8ToWide(trcPath_))) {
-        LOG_ERROR("App::StartReplayConfirmed", "Failed to load trc file: %s", trcPath_.c_str());
-        SetStatusError("回放失败：无法读取 .trc"); return;
+    // If no events in memory, try loading from file
+    if (recorder_.Events().empty()) {
+        if (!recorder_.LoadFromFile(Utf8ToWide(trcPath_))) {
+            LOG_ERROR("App::StartReplayConfirmed", "No events and failed to load trc file: %s", trcPath_.c_str());
+            SetStatusError("回放失败：无事件且无法读取 .trc"); return;
+        }
+    }
+    if (recorder_.Events().empty()) {
+        SetStatusError("回放失败：事件列表为空"); return;
     }
     const auto& ev = recorder_.Events(); std::vector<trc::RawEvent> copy(ev.begin(), ev.end());
     replayer_.SetSpeed(speedFactor_);
