@@ -175,7 +175,7 @@ static bool SetupChineseFonts(ImGuiIO& io, float baseFontSizePx) {
     cfg.OversampleV = 2;
     cfg.PixelSnapH = true;
 
-    const ImWchar* ranges = io.Fonts->GetGlyphRangesChineseSimplifiedCommon();
+    const ImWchar* ranges = io.Fonts->GetGlyphRangesChineseFull();
     const std::string pathUtf8 = wideToUtf8(chosen);
     io.FontDefault = io.Fonts->AddFontFromFileTTF(
         pathUtf8.c_str(),

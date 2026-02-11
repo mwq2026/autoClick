@@ -484,12 +484,60 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
     ImGui::SetCursorPosX(gutter);
     const ImGuiInputTextFlags ro = readOnly ? ImGuiInputTextFlags_ReadOnly : 0;
     const ImGuiInputTextFlags assistFlags = ImGuiInputTextFlags_CallbackAlways | ImGuiInputTextFlags_CallbackCompletion;
+
+    // When completion popup is open, intercept Up/Down/Enter/Tab BEFORE InputText
+    // processes them. We suppress these keys from ImGui's IO so InputText never sees
+    // them, then handle them ourselves after the widget call.
+    bool popupKeyUp = false, popupKeyDown = false, popupKeyAccept = false;
+    const bool popupActive = ui && !readOnly && ui->assistEnabled && ui->completionOpen && !ui->completionMatches.empty();
+    if (popupActive) {
+        ImGuiIO& io = ImGui::GetIO();
+        // Read key states before suppressing
+        popupKeyDown = ImGui::IsKeyPressed(ImGuiKey_DownArrow);
+        popupKeyUp = ImGui::IsKeyPressed(ImGuiKey_UpArrow);
+        popupKeyAccept = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter) || ImGui::IsKeyPressed(ImGuiKey_Tab);
+        // Suppress these keys so InputText doesn't move the cursor
+        if (popupKeyDown || popupKeyUp || popupKeyAccept) {
+            // Clear the key events from InputEvents so InputText won't process them.
+            // We do this by setting the keys as "not down" temporarily via KeysData.
+            auto clearKey = [&](ImGuiKey key) {
+                ImGuiKeyData& kd = io.KeysData[key - ImGuiKey_NamedKey_BEGIN];
+                kd.Down = false;
+                kd.DownDuration = -1.0f;
+                kd.DownDurationPrev = -1.0f;
+            };
+            if (popupKeyDown) clearKey(ImGuiKey_DownArrow);
+            if (popupKeyUp) clearKey(ImGuiKey_UpArrow);
+            if (popupKeyAccept) {
+                clearKey(ImGuiKey_Enter);
+                clearKey(ImGuiKey_KeypadEnter);
+                clearKey(ImGuiKey_Tab);
+            }
+        }
+    }
+
     // Always use callback version to track cursor position (needed for line highlight).
     // The assistEnabled flag only controls whether completion suggestions are shown.
     if (!readOnly && ui) {
         InputTextMultilineStringWithCallback("##luaeditor", text, ImVec2(-1, desiredEditorH), ro | assistFlags, LuaEditorInputCallback, ui);
     } else {
         InputTextMultilineString("##luaeditor", text, ImVec2(-1, desiredEditorH), ro);
+    }
+
+    // Now handle the suppressed popup keys
+    if (popupActive && ui) {
+        const int maxItems = std::min((int)ui->completionMatches.size(), 50);
+        if (popupKeyDown && ui->completionSelected < maxItems - 1)
+            ui->completionSelected++;
+        if (popupKeyUp && ui->completionSelected > 0)
+            ui->completionSelected--;
+        if (popupKeyAccept) {
+            const auto& docs = LuaEngine::ApiDocs();
+            const int sel = std::clamp(ui->completionSelected, 0, maxItems - 1);
+            const int di = ui->completionMatches[sel];
+            const char* nm = docs[di].name;
+            if (nm) ui->completionPendingInsert = nm;
+        }
     }
     const ImVec2 itemMin = ImGui::GetItemRectMin();
     const bool editorActive = ImGui::IsItemActive();
@@ -529,7 +577,21 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
     // Compute completion popup rect early (needed for clipping)
     const bool showPopup = ui && !readOnly && ui->assistEnabled && editorActive
                            && ui->completionOpen && !ui->completionMatches.empty();
-    const float popupW = 420.0f * s, popupH = 200.0f * s;
+    const float popupW = 420.0f * s;
+    // Compute popup height dynamically to fit all content:
+    // header + separator + list + separator + signature + brief + hint + padding
+    const float popupFontSz = ImGui::GetFontSize();
+    const float popupPad = 8.0f * s;
+    const float popupListH = 110.0f * s;
+    const float popupH = popupPad                          // top padding
+                        + popupFontSz + 6.0f * s           // header line
+                        + 4.0f * s                          // separator + gap
+                        + popupListH                        // list area
+                        + 4.0f * s                          // separator + gap
+                        + popupFontSz + 2.0f * s            // signature
+                        + popupFontSz + 4.0f * s            // brief
+                        + popupFontSz                       // hint line
+                        + popupPad;                         // bottom padding
     float popupX = 0, popupY = 0;
     if (showPopup) {
         popupY = textStartY + (cursorLine + 1) * lineH + 2.0f * s;
@@ -823,7 +885,7 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
         if (docs[detailIdx].brief)
             fg->AddText(ImVec2(popupX + pad, cy), IM_COL32(166, 173, 199, 230), docs[detailIdx].brief);
         cy += pfontSz + 4.0f * s;
-        fg->AddText(ImVec2(popupX + pad, cy), IM_COL32(115, 122, 148, 153), "↑↓ 选择 | Enter 补全 | Esc 关闭");
+        fg->AddText(ImVec2(popupX + pad, cy), IM_COL32(115, 122, 148, 153), "Up/Down | Enter | Esc");
 
         fg->PopClipRect();
 
@@ -934,30 +996,9 @@ static int LuaEditorInputCallback(ImGuiInputTextCallbackData* data) {
         ui->selectionEnd = data->CursorPos;
         return 0;
     }
-    // Intercept Up/Down/Enter/Tab when completion popup is open.
-    // We must do this inside the callback to prevent InputText from consuming
-    // these keys (moving the cursor). IsKeyPressed outside fires AFTER InputText.
-    if (ui->completionOpen && !ui->completionMatches.empty() && ui->assistEnabled) {
-        const int maxItems = std::min((int)ui->completionMatches.size(), 50);
-        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
-            if (ui->completionSelected < maxItems - 1) ui->completionSelected++;
-            // Don't update cursor pos — suppress the key from InputText
-            return 1;
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
-            if (ui->completionSelected > 0) ui->completionSelected--;
-            return 1;
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter) || ImGui::IsKeyPressed(ImGuiKey_Tab)) {
-            const auto& docs = LuaEngine::ApiDocs();
-            const int sel = std::clamp(ui->completionSelected, 0, maxItems - 1);
-            const int di = ui->completionMatches[sel];
-            const char* nm = docs[di].name;
-            if (nm) ui->completionPendingInsert = nm;
-            return 1;
-        }
-    }
     // Track cursor and selection position (needed for line highlight + selection rendering)
+    // Note: keyboard navigation for the completion popup is handled BEFORE InputText
+    // in DrawLuaEditorWithLineNumbers by suppressing keys from ImGui IO.
     ui->completionCursorPos = data->CursorPos;
     ui->selectionStart = data->HasSelection() ? data->SelectionStart : data->CursorPos;
     ui->selectionEnd = data->HasSelection() ? data->SelectionEnd : data->CursorPos;
@@ -984,6 +1025,7 @@ static void DrawLuaDocsPanel(LuaScriptUiState* ui, float height, bool disabled) 
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.10f, 0.08f, 0.20f, 0.70f));
     ImGui::BeginChild("##lua_docs_panel", ImVec2(-1, height), true);
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.78f, 0.75f, 0.95f, 1.0f));
+    ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted("Lua API");
     ImGui::PopStyleColor();
     ImGui::SameLine(); ImGui::Checkbox("提示/补全", &ui->assistEnabled);
@@ -1101,17 +1143,19 @@ void App::OnFrame() {
         ImGui::Text("AutoClicker-Pro");
         ImGui::PopStyleColor();
 
-        // Mode tabs - centered pill buttons
-        ImGui::SameLine();
-        const float tabW = 220.0f * s;
-        const float centerX = (hs.x - tabW) * 0.5f;
-        if (ImGui::GetCursorPosX() < centerX) ImGui::SetCursorPosX(centerX);
-        ImGui::SetCursorPosY((headerH - 30.0f * s) * 0.5f);
+        // Mode tabs - centered pill buttons (absolute positioning for precise centering)
+        const float tabBtnW = 100.0f * s;
+        const float tabGap = 6.0f * s;
+        const float tabTotalW = tabBtnW * 2.0f + tabGap;
+        // Calculate absolute screen X for centering within the header
+        const float tabStartScreenX = hp.x + (hs.x - tabTotalW) * 0.5f;
+        const float tabScreenY = hp.y + (headerH - 30.0f * s) * 0.5f;
 
         // Tab: 录制回放
         {
-            const ImVec2 tabPos = ImGui::GetCursorScreenPos();
-            const ImVec2 tabSz(100.0f * s, 30.0f * s);
+            const ImVec2 tabPos(tabStartScreenX, tabScreenY);
+            const ImVec2 tabSz(tabBtnW, 30.0f * s);
+            ImGui::SetCursorScreenPos(tabPos);
             ImGui::InvisibleButton("##tab0", tabSz);
             if (ImGui::IsItemClicked()) mode_ = 0;
             const bool hov = ImGui::IsItemHovered();
@@ -1129,12 +1173,13 @@ void App::OnFrame() {
                 mode_ == 0 ? IM_COL32(255, 255, 255, 240) : IM_COL32(180, 170, 210, 200), "录制回放");
         }
 
-        ImGui::SameLine(0, 6.0f * s);
+        ImGui::SameLine(0, tabGap);
 
         // Tab: Lua 脚本
         {
-            const ImVec2 tabPos = ImGui::GetCursorScreenPos();
-            const ImVec2 tabSz(100.0f * s, 30.0f * s);
+            const ImVec2 tabPos(tabStartScreenX + tabBtnW + tabGap, tabScreenY);
+            const ImVec2 tabSz(tabBtnW, 30.0f * s);
+            ImGui::SetCursorScreenPos(tabPos);
             ImGui::InvisibleButton("##tab1", tabSz);
             if (ImGui::IsItemClicked()) mode_ = 1;
             const bool hov = ImGui::IsItemHovered();
@@ -1403,12 +1448,20 @@ void App::DrawAdvancedMode() {
         ImGui::SetCursorPosY((toolbarH - btnH) * 0.5f);
         if (ImGui::Button("工具", ImVec2(toolBtnW, btnH))) ImGui::OpenPopup("more_tools_popup");
 
+        ImGui::SetNextWindowSizeConstraints(ImVec2(300.0f * s, 0), ImVec2(FLT_MAX, FLT_MAX));
         if (ImGui::BeginPopup("more_tools_popup")) {
             ImGui::TextDisabled("TRC -> Lua 转换");
             ImGui::Separator();
             static float tol = 3.0f;
-            ImGui::SetNextItemWidth(120.0f * s);
-            ImGui::SliderFloat("容差##tol", &tol, 0.5f, 20.0f, "%.1f px");
+            ImGui::AlignTextToFramePadding();
+            ImGui::Text("容差");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(140.0f * s);
+            ImGui::SliderFloat("##tol_slider", &tol, 0.5f, 20.0f, "%.1f px");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(70.0f * s);
+            if (ImGui::InputFloat("##tol_input", &tol, 0.0f, 0.0f, "%.1f"))
+                tol = std::clamp(tol, 0.5f, 20.0f);
             ImGui::Checkbox("高保真导出", &exportFull_);
             if (ImGui::Button("执行转换", ImVec2(-1, 0))) {
                 bool ok = exportFull_ ? Converter::TrcToLuaFull(Utf8ToWide(trcPath_), Utf8ToWide(luaPath_)) : Converter::TrcToLua(Utf8ToWide(trcPath_), Utf8ToWide(luaPath_), tol);
