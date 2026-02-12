@@ -474,9 +474,9 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
     const float s = UiScale();
     const float gutter = 70.0f * s;
 
-    // Editor colors
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.11f, 0.12f, 0.16f, 0.97f));
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.11f, 0.12f, 0.16f, 0.97f));
+    // Editor colors — match event list glass card background
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.18f, 0.15f, 0.30f, 0.60f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.18f, 0.15f, 0.30f, 0.60f));
     // Text alpha=0: ImGui's native text is invisible. We draw colored text on foreground.
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     // Selection alpha=0: ImGui's native selection is invisible. We draw our own on foreground
@@ -632,12 +632,12 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
     // ── Foreground draw list — the ONLY layer above InputTextMultiline's child ──
     fg->PushClipRect(winPos, ImVec2(winPos.x + winSize.x, winPos.y + winSize.y), true);
 
-    // Gutter background (on foreground so it's visible)
+    // Gutter background (on foreground so it's visible) — match glass card style
     fg->AddRectFilled(ImVec2(winPos.x, winPos.y), ImVec2(winPos.x + gutter - 4.0f * s, winPos.y + winSize.y),
-        IM_COL32(22, 24, 34, 240));
+        IM_COL32(46, 38, 76, 153));  // rgba(0.18, 0.15, 0.30, 0.60) * 255
     fg->AddLine(ImVec2(winPos.x + gutter - 4.0f * s, winPos.y),
                 ImVec2(winPos.x + gutter - 4.0f * s, winPos.y + winSize.y),
-                IM_COL32(60, 55, 90, 150), 1.0f);
+                IM_COL32(140, 115, 217, 102), 1.0f);  // rgba(0.55, 0.45, 0.85, 0.40) * 255
 
     // Vertical padding for highlight rects: text glyphs have ascent/descent so the
     // visual center sits slightly above the mathematical center of [y, y+lineH].
@@ -2202,17 +2202,43 @@ void App::DrawLogMode() {
 
     ImGui::Spacing();
 
-    // Log entries list
+    // Log entries list with line numbers
     const float logH = ImGui::GetContentRegionAvail().y - 40.0f * s;
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.08f, 0.07f, 0.14f, 0.90f));
+    const float logGutter = 70.0f * s;
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.18f, 0.15f, 0.30f, 0.60f));  // Match Lua editor
     ImGui::BeginChild("##log_list", ImVec2(0, logH), true);
     {
+        const ImVec2 logWinPos = ImGui::GetWindowPos();
+        const ImVec2 logWinSize = ImGui::GetWindowSize();
+        ImDrawList* logDl = ImGui::GetForegroundDrawList();
+        
+        // Draw gutter background
+        logDl->PushClipRect(logWinPos, ImVec2(logWinPos.x + logWinSize.x, logWinPos.y + logWinSize.y), true);
+        logDl->AddRectFilled(ImVec2(logWinPos.x, logWinPos.y), ImVec2(logWinPos.x + logGutter - 4.0f * s, logWinPos.y + logWinSize.y),
+            IM_COL32(46, 38, 76, 153));
+        logDl->AddLine(ImVec2(logWinPos.x + logGutter - 4.0f * s, logWinPos.y),
+                       ImVec2(logWinPos.x + logGutter - 4.0f * s, logWinPos.y + logWinSize.y),
+                       IM_COL32(140, 115, 217, 102), 1.0f);
+        
+        const float logLineH = ImGui::GetTextLineHeight();
+        const float logScrollY = ImGui::GetScrollY();
+        
         auto entries = Logger::Instance().GetEntries((LogLevel)logFilterLevel_);
         ImGuiListClipper clipper;
         clipper.Begin((int)entries.size());
         while (clipper.Step()) {
             for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
                 const auto& e = entries[i];
+                
+                // Draw line number in gutter
+                const float lineY = logWinPos.y + ImGui::GetStyle().WindowPadding.y + (i * logLineH) - logScrollY;
+                char lineNumBuf[16];
+                snprintf(lineNumBuf, sizeof(lineNumBuf), "%06d", i + 1);
+                logDl->AddText(ImVec2(logWinPos.x + 8.0f * s, lineY), IM_COL32(115, 102, 166, 204), lineNumBuf);
+                
+                // Content area starts after gutter
+                ImGui::SetCursorPosX(logGutter);
+                
                 // Timestamp
                 std::string ts = Logger::FormatTimestamp(e.timestampMs);
                 ImGui::TextColored(ImVec4(0.45f, 0.42f, 0.60f, 0.8f), "%s", ts.c_str());
@@ -2243,10 +2269,13 @@ void App::DrawLogMode() {
 
                 // Stack trace for Error/Fatal
                 if (!e.stackTrace.empty()) {
+                    ImGui::SetCursorPosX(logGutter);
                     ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 0.7f), "  Stack: %s", e.stackTrace.c_str());
                 }
             }
         }
+        logDl->PopClipRect();
+        
         if (logAutoScroll_ && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 20.0f)
             ImGui::SetScrollHereY(1.0f);
     }

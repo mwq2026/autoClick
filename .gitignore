@@ -38,7 +38,6 @@ compile_commands.json
 *.lib
 
 # Executables
-*.exe
 *.dll
 
 # ImGui runtime files
