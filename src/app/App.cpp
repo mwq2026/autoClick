@@ -1727,7 +1727,8 @@ void App::DrawSchedulerMode() {
             ImGui::TableNextColumn();
             {
                 const float inputW = ImGui::GetContentRegionAvail().x - 8.0f * s;
-            BeginGlassCard("##sched_cfg_card", "任务配置", ImVec2(0, 0));
+                const float cardH = ImGui::GetContentRegionAvail().y;
+            BeginGlassScrollCard("##sched_cfg_card", "任务配置", ImVec2(0, cardH));
             {
                 ImGui::Text("任务名称");
                 ImGui::SetNextItemWidth(inputW);
@@ -1760,7 +1761,8 @@ void App::DrawSchedulerMode() {
             ImGui::TableNextColumn();
             {
                 const float inputW = ImGui::GetContentRegionAvail().x - 8.0f * s;
-            BeginGlassCard("##sched_time_card", "调度设置", ImVec2(0, 0));
+                const float cardH = ImGui::GetContentRegionAvail().y;
+            BeginGlassScrollCard("##sched_time_card", "调度设置", ImVec2(0, cardH));
             {
                 if (editTask_.type == TaskType::OneShot) {
                     ImGui::Text("日期");
