@@ -277,6 +277,92 @@ const std::vector<LuaEngine::LuaApiDoc>& LuaEngine::ApiDocs() {
 
         { "set_target_window", "set_target_window(hwnd)", "高级", "设置目标窗口（供部分模式使用）" },
         { "clear_target_window", "clear_target_window()", "高级", "清除目标窗口" },
+
+        // Spy++ / UI Automation
+        { "window_parent", "window_parent(hwnd) -> hwnd|nil", "窗口树", "获取父窗口" },
+        { "window_owner", "window_owner(hwnd) -> hwnd|nil", "窗口树", "获取所有者窗口" },
+        { "window_child", "window_child(hwnd) -> hwnd|nil", "窗口树", "获取第一个子窗口" },
+        { "window_next_sibling", "window_next_sibling(hwnd) -> hwnd|nil", "窗口树", "获取下一个兄弟窗口" },
+        { "window_prev_sibling", "window_prev_sibling(hwnd) -> hwnd|nil", "窗口树", "获取上一个兄弟窗口" },
+        { "window_children", "window_children(hwnd[, recursive]) -> {hwnd,...}", "窗口树", "枚举子窗口列表" },
+        { "window_desktop", "window_desktop() -> hwnd", "窗口树", "获取桌面窗口句柄" },
+
+        { "window_style", "window_style(hwnd) -> integer", "窗口属性", "获取窗口 WS_ 样式" },
+        { "window_exstyle", "window_exstyle(hwnd) -> integer", "窗口属性", "获取窗口 WS_EX_ 扩展样式" },
+        { "window_set_style", "window_set_style(hwnd, style) -> boolean", "窗口属性", "设置窗口样式" },
+        { "window_set_exstyle", "window_set_exstyle(hwnd, exstyle) -> boolean", "窗口属性", "设置窗口扩展样式" },
+        { "window_is_visible", "window_is_visible(hwnd) -> boolean", "窗口属性", "窗口是否可见" },
+        { "window_is_enabled", "window_is_enabled(hwnd) -> boolean", "窗口属性", "窗口是否启用" },
+        { "window_is_focused", "window_is_focused(hwnd) -> boolean", "窗口属性", "窗口是否拥有焦点" },
+        { "window_is_minimized", "window_is_minimized(hwnd) -> boolean", "窗口属性", "窗口是否最小化" },
+        { "window_is_maximized", "window_is_maximized(hwnd) -> boolean", "窗口属性", "窗口是否最大化" },
+        { "window_thread_id", "window_thread_id(hwnd) -> integer", "窗口属性", "获取窗口线程 ID" },
+        { "window_text_length", "window_text_length(hwnd) -> integer", "窗口属性", "获取控件文本长度" },
+
+        { "control_get_text", "control_get_text(hwnd) -> string|nil", "控件操作", "读取控件文本 (WM_GETTEXT)" },
+        { "control_set_text", "control_set_text(hwnd, text) -> boolean", "控件操作", "设置控件文本 (WM_SETTEXT)" },
+        { "window_enable", "window_enable(hwnd, enable) -> boolean", "控件操作", "启用/禁用窗口" },
+        { "window_set_focus", "window_set_focus(hwnd) -> boolean", "控件操作", "设置焦点到窗口" },
+        { "window_send_msg", "window_send_msg(hwnd, msg[, wParam[, lParam]]) -> integer", "控件操作", "SendMessage 发送消息" },
+        { "window_post_msg", "window_post_msg(hwnd, msg[, wParam[, lParam]]) -> boolean", "控件操作", "PostMessage 投递消息" },
+
+        { "button_click", "button_click(hwnd) -> boolean", "控件操作", "点击按钮 (BM_CLICK)" },
+        { "checkbox_get", "checkbox_get(hwnd) -> integer", "控件操作", "获取复选框状态 (0/1/2)" },
+        { "checkbox_set", "checkbox_set(hwnd, state) -> boolean", "控件操作", "设置复选框状态" },
+        { "combo_get_sel", "combo_get_sel(hwnd) -> integer", "控件操作", "获取组合框当前选中索引" },
+        { "combo_set_sel", "combo_set_sel(hwnd, index) -> boolean", "控件操作", "设置组合框选中项" },
+        { "combo_get_count", "combo_get_count(hwnd) -> integer", "控件操作", "获取组合框项数" },
+        { "combo_get_item", "combo_get_item(hwnd, index) -> string|nil", "控件操作", "获取组合框指定项文本" },
+        { "listbox_get_sel", "listbox_get_sel(hwnd) -> integer", "控件操作", "获取列表框当前选中索引" },
+        { "listbox_set_sel", "listbox_set_sel(hwnd, index) -> boolean", "控件操作", "设置列表框选中项" },
+        { "listbox_get_count", "listbox_get_count(hwnd) -> integer", "控件操作", "获取列表框项数" },
+        { "listbox_get_item", "listbox_get_item(hwnd, index) -> string|nil", "控件操作", "获取列表框指定项文本" },
+
+        { "edit_get_line_count", "edit_get_line_count(hwnd) -> integer", "编辑框", "获取编辑框行数" },
+        { "edit_get_line", "edit_get_line(hwnd, line) -> string|nil", "编辑框", "获取编辑框指定行文本" },
+        { "edit_set_sel", "edit_set_sel(hwnd, start, end) -> boolean", "编辑框", "设置编辑框选区" },
+        { "edit_replace_sel", "edit_replace_sel(hwnd, text) -> boolean", "编辑框", "替换编辑框选区文本" },
+        { "edit_get_sel", "edit_get_sel(hwnd) -> start, end", "编辑框", "获取编辑框选区范围" },
+
+        { "scroll_set", "scroll_set(hwnd, bar, pos) -> boolean", "滚动", "设置滚动条位置 (bar: 0=水平, 1=垂直)" },
+        { "scroll_get_pos", "scroll_get_pos(hwnd, bar) -> integer", "滚动", "获取滚动条位置" },
+        { "scroll_get_range", "scroll_get_range(hwnd, bar) -> min, max", "滚动", "获取滚动条范围" },
+
+        { "tab_get_sel", "tab_get_sel(hwnd) -> integer", "高级控件", "获取 Tab 控件当前选中页" },
+        { "tab_set_sel", "tab_set_sel(hwnd, index) -> boolean", "高级控件", "设置 Tab 控件选中页" },
+        { "tab_get_count", "tab_get_count(hwnd) -> integer", "高级控件", "获取 Tab 控件页数" },
+        { "treeview_get_count", "treeview_get_count(hwnd) -> integer", "高级控件", "获取 TreeView 节点数" },
+        { "treeview_get_sel", "treeview_get_sel(hwnd) -> hItem|nil", "高级控件", "获取 TreeView 选中节点" },
+        { "treeview_select", "treeview_select(hwnd, hItem) -> boolean", "高级控件", "选中 TreeView 节点" },
+        { "listview_get_count", "listview_get_count(hwnd) -> integer", "高级控件", "获取 ListView 项数" },
+        { "listview_get_sel_count", "listview_get_sel_count(hwnd) -> integer", "高级控件", "获取 ListView 选中项数" },
+        { "listview_next_sel", "listview_next_sel(hwnd[, start]) -> index|nil", "高级控件", "获取 ListView 下一个选中项" },
+
+        { "find_child_by_class", "find_child_by_class(hwnd, class[, index]) -> hwnd|nil", "查找", "按类名查找子控件" },
+        { "find_child_by_text", "find_child_by_text(hwnd, text_substr) -> hwnd|nil", "查找", "按文本查找子控件" },
+
+        { "screen_capture", "screen_capture(x, y, w, h, bmp_path) -> boolean", "视觉", "截取屏幕区域保存为 BMP" },
+        { "monitor_count", "monitor_count() -> integer", "系统", "获取显示器数量" },
+        { "monitor_rect", "monitor_rect(index) -> x, y, w, h|nil", "系统", "获取指定显示器矩形" },
+        { "system_dpi", "system_dpi() -> integer", "系统", "获取系统 DPI" },
+        { "window_dpi", "window_dpi(hwnd) -> integer", "系统", "获取窗口 DPI" },
+
+        { "reg_read", "reg_read(key, value_name) -> string|nil", "注册表", "读取注册表字符串值" },
+        { "reg_write", "reg_write(key, value_name, data) -> boolean", "注册表", "写入注册表字符串值" },
+        { "reg_read_dword", "reg_read_dword(key, value_name[, default]) -> integer", "注册表", "读取注册表 DWORD 值" },
+        { "reg_write_dword", "reg_write_dword(key, value_name, data) -> boolean", "注册表", "写入注册表 DWORD 值" },
+
+        { "env_get", "env_get(name) -> string|nil", "系统", "读取环境变量" },
+        { "env_set", "env_set(name, value) -> boolean", "系统", "设置环境变量" },
+
+        { "file_exists", "file_exists(path) -> boolean", "文件", "判断文件是否存在" },
+        { "dir_exists", "dir_exists(path) -> boolean", "文件", "判断目录是否存在" },
+        { "file_delete", "file_delete(path) -> boolean", "文件", "删除文件" },
+        { "dir_create", "dir_create(path) -> boolean", "文件", "创建目录" },
+        { "file_size", "file_size(path) -> integer", "文件", "获取文件大小（字节）" },
+
+        { "msgbox", "msgbox(text[, title[, flags]]) -> integer", "调试", "弹出消息框" },
+        { "sleep", "sleep(ms)", "基础", "等待指定毫秒（可取消）" },
     };
     return docs;
 }
@@ -489,6 +575,80 @@ void LuaEngine::RegisterApi(lua_State* L) {
     lua_register(L, "text", &LuaEngine::L_Text);
     lua_register(L, "set_target_window", &LuaEngine::L_SetTargetWindow);
     lua_register(L, "clear_target_window", &LuaEngine::L_ClearTargetWindow);
+
+    // Spy++ / UI Automation extensions
+    lua_register(L, "window_parent", &LuaEngine::L_WindowParent);
+    lua_register(L, "window_owner", &LuaEngine::L_WindowOwner);
+    lua_register(L, "window_child", &LuaEngine::L_WindowChildFirst);
+    lua_register(L, "window_next_sibling", &LuaEngine::L_WindowNextSibling);
+    lua_register(L, "window_prev_sibling", &LuaEngine::L_WindowPrevSibling);
+    lua_register(L, "window_children", &LuaEngine::L_WindowChildren);
+    lua_register(L, "window_desktop", &LuaEngine::L_WindowDesktop);
+    lua_register(L, "window_style", &LuaEngine::L_WindowStyle);
+    lua_register(L, "window_exstyle", &LuaEngine::L_WindowExStyle);
+    lua_register(L, "window_set_style", &LuaEngine::L_WindowSetStyleLua);
+    lua_register(L, "window_set_exstyle", &LuaEngine::L_WindowSetExStyleLua);
+    lua_register(L, "window_is_visible", &LuaEngine::L_WindowIsVisibleLua);
+    lua_register(L, "window_is_enabled", &LuaEngine::L_WindowIsEnabledLua);
+    lua_register(L, "window_is_focused", &LuaEngine::L_WindowIsFocusedLua);
+    lua_register(L, "window_is_minimized", &LuaEngine::L_WindowIsMinimizedLua);
+    lua_register(L, "window_is_maximized", &LuaEngine::L_WindowIsMaximizedLua);
+    lua_register(L, "window_thread_id", &LuaEngine::L_WindowThreadIdLua);
+    lua_register(L, "window_text_length", &LuaEngine::L_WindowTextLength);
+    lua_register(L, "control_get_text", &LuaEngine::L_ControlGetText);
+    lua_register(L, "control_set_text", &LuaEngine::L_ControlSetText);
+    lua_register(L, "window_enable", &LuaEngine::L_WindowEnableLua);
+    lua_register(L, "window_set_focus", &LuaEngine::L_WindowSetFocusLua);
+    lua_register(L, "window_send_msg", &LuaEngine::L_WindowSendMsg);
+    lua_register(L, "window_post_msg", &LuaEngine::L_WindowPostMsg);
+    lua_register(L, "button_click", &LuaEngine::L_ButtonClickLua);
+    lua_register(L, "checkbox_get", &LuaEngine::L_CheckboxGet);
+    lua_register(L, "checkbox_set", &LuaEngine::L_CheckboxSet);
+    lua_register(L, "combo_get_sel", &LuaEngine::L_ComboGetSel);
+    lua_register(L, "combo_set_sel", &LuaEngine::L_ComboSetSel);
+    lua_register(L, "combo_get_count", &LuaEngine::L_ComboGetCount);
+    lua_register(L, "combo_get_item", &LuaEngine::L_ComboGetItem);
+    lua_register(L, "listbox_get_sel", &LuaEngine::L_ListboxGetSel);
+    lua_register(L, "listbox_set_sel", &LuaEngine::L_ListboxSetSel);
+    lua_register(L, "listbox_get_count", &LuaEngine::L_ListboxGetCountLua);
+    lua_register(L, "listbox_get_item", &LuaEngine::L_ListboxGetItemLua);
+    lua_register(L, "edit_get_line_count", &LuaEngine::L_EditGetLineCount);
+    lua_register(L, "edit_get_line", &LuaEngine::L_EditGetLine);
+    lua_register(L, "edit_set_sel", &LuaEngine::L_EditSetSel);
+    lua_register(L, "edit_replace_sel", &LuaEngine::L_EditReplaceSel);
+    lua_register(L, "edit_get_sel", &LuaEngine::L_EditGetSel);
+    lua_register(L, "scroll_set", &LuaEngine::L_ScrollSet);
+    lua_register(L, "scroll_get_pos", &LuaEngine::L_ScrollGetPos);
+    lua_register(L, "scroll_get_range", &LuaEngine::L_ScrollGetRange);
+    lua_register(L, "tab_get_sel", &LuaEngine::L_TabGetSel);
+    lua_register(L, "tab_set_sel", &LuaEngine::L_TabSetSel);
+    lua_register(L, "tab_get_count", &LuaEngine::L_TabGetCountLua);
+    lua_register(L, "treeview_get_count", &LuaEngine::L_TreeViewGetCountLua);
+    lua_register(L, "treeview_get_sel", &LuaEngine::L_TreeViewGetSelLua);
+    lua_register(L, "treeview_select", &LuaEngine::L_TreeViewSelectLua);
+    lua_register(L, "listview_get_count", &LuaEngine::L_ListViewGetCountLua);
+    lua_register(L, "listview_get_sel_count", &LuaEngine::L_ListViewGetSelCountLua);
+    lua_register(L, "listview_next_sel", &LuaEngine::L_ListViewNextSelLua);
+    lua_register(L, "find_child_by_class", &LuaEngine::L_FindChildByClassLua);
+    lua_register(L, "find_child_by_text", &LuaEngine::L_FindChildByTextLua);
+    lua_register(L, "screen_capture", &LuaEngine::L_ScreenCapture);
+    lua_register(L, "monitor_count", &LuaEngine::L_MonitorCount);
+    lua_register(L, "monitor_rect", &LuaEngine::L_MonitorRect);
+    lua_register(L, "system_dpi", &LuaEngine::L_SystemDpi);
+    lua_register(L, "window_dpi", &LuaEngine::L_WindowDpiLua);
+    lua_register(L, "reg_read", &LuaEngine::L_RegRead);
+    lua_register(L, "reg_write", &LuaEngine::L_RegWrite);
+    lua_register(L, "reg_read_dword", &LuaEngine::L_RegReadDwordLua);
+    lua_register(L, "reg_write_dword", &LuaEngine::L_RegWriteDwordLua);
+    lua_register(L, "env_get", &LuaEngine::L_EnvGetLua);
+    lua_register(L, "env_set", &LuaEngine::L_EnvSetLua);
+    lua_register(L, "file_exists", &LuaEngine::L_FileExistsLua);
+    lua_register(L, "dir_exists", &LuaEngine::L_DirExistsLua);
+    lua_register(L, "file_delete", &LuaEngine::L_FileDeleteLua);
+    lua_register(L, "dir_create", &LuaEngine::L_DirCreateLua);
+    lua_register(L, "file_size", &LuaEngine::L_FileSizeLua);
+    lua_register(L, "msgbox", &LuaEngine::L_MsgBoxLua);
+    lua_register(L, "sleep", &LuaEngine::L_Sleep);
 }
 
 void LuaEngine::DebugHook(lua_State* L, lua_Debug* ar) {
@@ -991,6 +1151,12 @@ static bool WideToUtf8(const std::wstring& w, std::string* out) {
     return true;
 }
 
+static std::string WideToUtf8(const std::wstring& w) {
+    std::string out;
+    WideToUtf8(w, &out);
+    return out;
+}
+
 int LuaEngine::L_ClipboardSet(lua_State* L) {
     const char* s = luaL_checkstring(L, 1);
     const std::wstring w = Utf8ToWide(s ? s : "");
@@ -1392,5 +1558,391 @@ int LuaEngine::L_ClearTargetWindow(lua_State* L) {
     auto* self = Self(L);
     if (!self) return 0;
     self->targetWindow_ = nullptr;
+    return 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Spy++ / UI Automation Lua bindings
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Helper: push HWND as lightuserdata or nil
+static void PushHwnd(lua_State* L, HWND h) {
+    if (h) lua_pushlightuserdata(L, (void*)h);
+    else lua_pushnil(L);
+}
+static HWND ToHwnd(lua_State* L, int idx) {
+    return (HWND)lua_touserdata(L, idx);
+}
+
+int LuaEngine::L_WindowParent(lua_State* L) {
+    PushHwnd(L, winauto::WindowParent(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_WindowOwner(lua_State* L) {
+    PushHwnd(L, winauto::WindowOwner(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_WindowChildFirst(lua_State* L) {
+    PushHwnd(L, winauto::WindowChild(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_WindowNextSibling(lua_State* L) {
+    PushHwnd(L, winauto::WindowNextSibling(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_WindowPrevSibling(lua_State* L) {
+    PushHwnd(L, winauto::WindowPrevSibling(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_WindowChildren(lua_State* L) {
+    HWND hwnd = ToHwnd(L, 1);
+    bool recursive = lua_toboolean(L, 2) != 0;
+    auto children = winauto::WindowChildren(hwnd, recursive);
+    lua_createtable(L, (int)children.size(), 0);
+    for (int i = 0; i < (int)children.size(); ++i) {
+        lua_pushlightuserdata(L, (void*)children[i]);
+        lua_rawseti(L, -2, i + 1);
+    }
+    return 1;
+}
+int LuaEngine::L_WindowDesktop(lua_State* L) {
+    PushHwnd(L, winauto::WindowDesktop());
+    return 1;
+}
+int LuaEngine::L_WindowStyle(lua_State* L) {
+    lua_pushinteger(L, winauto::WindowStyle(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_WindowExStyle(lua_State* L) {
+    lua_pushinteger(L, winauto::WindowExStyle(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_WindowSetStyleLua(lua_State* L) {
+    lua_pushboolean(L, winauto::WindowSetStyle(ToHwnd(L, 1), (uint32_t)luaL_checkinteger(L, 2)));
+    return 1;
+}
+int LuaEngine::L_WindowSetExStyleLua(lua_State* L) {
+    lua_pushboolean(L, winauto::WindowSetExStyle(ToHwnd(L, 1), (uint32_t)luaL_checkinteger(L, 2)));
+    return 1;
+}
+int LuaEngine::L_WindowIsVisibleLua(lua_State* L) {
+    lua_pushboolean(L, winauto::WindowIsVisible(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_WindowIsEnabledLua(lua_State* L) {
+    lua_pushboolean(L, winauto::WindowIsEnabled(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_WindowIsFocusedLua(lua_State* L) {
+    lua_pushboolean(L, winauto::WindowIsFocused(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_WindowIsMinimizedLua(lua_State* L) {
+    lua_pushboolean(L, winauto::WindowIsMinimized(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_WindowIsMaximizedLua(lua_State* L) {
+    lua_pushboolean(L, winauto::WindowIsMaximized(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_WindowThreadIdLua(lua_State* L) {
+    lua_pushinteger(L, winauto::WindowThreadId(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_WindowTextLength(lua_State* L) {
+    lua_pushinteger(L, winauto::WindowTextLength(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_ControlGetText(lua_State* L) {
+    std::wstring t = winauto::ControlGetText(ToHwnd(L, 1));
+    if (t.empty()) { lua_pushnil(L); return 1; }
+    std::string u = WideToUtf8(t);
+    lua_pushlstring(L, u.c_str(), u.size());
+    return 1;
+}
+int LuaEngine::L_ControlSetText(lua_State* L) {
+    const char* s = luaL_checkstring(L, 2);
+    lua_pushboolean(L, winauto::ControlSetText(ToHwnd(L, 1), Utf8ToWide(s ? s : "")));
+    return 1;
+}
+int LuaEngine::L_WindowEnableLua(lua_State* L) {
+    lua_pushboolean(L, winauto::WindowEnable(ToHwnd(L, 1), lua_toboolean(L, 2) != 0));
+    return 1;
+}
+int LuaEngine::L_WindowSetFocusLua(lua_State* L) {
+    lua_pushboolean(L, winauto::WindowSetFocus(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_WindowSendMsg(lua_State* L) {
+    HWND h = ToHwnd(L, 1);
+    uint32_t msg = (uint32_t)luaL_checkinteger(L, 2);
+    uintptr_t wp = (uintptr_t)luaL_optinteger(L, 3, 0);
+    intptr_t lp = (intptr_t)luaL_optinteger(L, 4, 0);
+    lua_pushinteger(L, winauto::WindowSendMessage(h, msg, wp, lp));
+    return 1;
+}
+int LuaEngine::L_WindowPostMsg(lua_State* L) {
+    HWND h = ToHwnd(L, 1);
+    uint32_t msg = (uint32_t)luaL_checkinteger(L, 2);
+    uintptr_t wp = (uintptr_t)luaL_optinteger(L, 3, 0);
+    intptr_t lp = (intptr_t)luaL_optinteger(L, 4, 0);
+    lua_pushboolean(L, winauto::WindowPostMessage(h, msg, wp, lp));
+    return 1;
+}
+int LuaEngine::L_ButtonClickLua(lua_State* L) {
+    lua_pushboolean(L, winauto::ButtonClick(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_CheckboxGet(lua_State* L) {
+    lua_pushinteger(L, winauto::CheckboxGetState(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_CheckboxSet(lua_State* L) {
+    lua_pushboolean(L, winauto::CheckboxSetState(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2)));
+    return 1;
+}
+int LuaEngine::L_ComboGetSel(lua_State* L) {
+    lua_pushinteger(L, winauto::ComboboxGetCurSel(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_ComboSetSel(lua_State* L) {
+    lua_pushboolean(L, winauto::ComboboxSetCurSel(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2)));
+    return 1;
+}
+int LuaEngine::L_ComboGetCount(lua_State* L) {
+    lua_pushinteger(L, winauto::ComboboxGetCount(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_ComboGetItem(lua_State* L) {
+    std::wstring t = winauto::ComboboxGetItem(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2));
+    if (t.empty()) { lua_pushnil(L); return 1; }
+    std::string u = WideToUtf8(t);
+    lua_pushlstring(L, u.c_str(), u.size());
+    return 1;
+}
+int LuaEngine::L_ListboxGetSel(lua_State* L) {
+    lua_pushinteger(L, winauto::ListboxGetCurSel(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_ListboxSetSel(lua_State* L) {
+    lua_pushboolean(L, winauto::ListboxSetCurSel(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2)));
+    return 1;
+}
+int LuaEngine::L_ListboxGetCountLua(lua_State* L) {
+    lua_pushinteger(L, winauto::ListboxGetCount(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_ListboxGetItemLua(lua_State* L) {
+    std::wstring t = winauto::ListboxGetItem(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2));
+    if (t.empty()) { lua_pushnil(L); return 1; }
+    std::string u = WideToUtf8(t);
+    lua_pushlstring(L, u.c_str(), u.size());
+    return 1;
+}
+int LuaEngine::L_EditGetLineCount(lua_State* L) {
+    lua_pushinteger(L, winauto::EditGetLineCount(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_EditGetLine(lua_State* L) {
+    std::wstring t = winauto::EditGetLine(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2));
+    if (t.empty()) { lua_pushnil(L); return 1; }
+    std::string u = WideToUtf8(t);
+    lua_pushlstring(L, u.c_str(), u.size());
+    return 1;
+}
+int LuaEngine::L_EditSetSel(lua_State* L) {
+    lua_pushboolean(L, winauto::EditSetSel(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2), (int)luaL_checkinteger(L, 3)));
+    return 1;
+}
+int LuaEngine::L_EditReplaceSel(lua_State* L) {
+    const char* s = luaL_checkstring(L, 2);
+    lua_pushboolean(L, winauto::EditReplaceSel(ToHwnd(L, 1), Utf8ToWide(s ? s : "")));
+    return 1;
+}
+int LuaEngine::L_EditGetSel(lua_State* L) {
+    int s = 0, e = 0;
+    winauto::EditGetSel(ToHwnd(L, 1), &s, &e);
+    lua_pushinteger(L, s);
+    lua_pushinteger(L, e);
+    return 2;
+}
+int LuaEngine::L_ScrollSet(lua_State* L) {
+    lua_pushboolean(L, winauto::ScrollWindow(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2), (int)luaL_checkinteger(L, 3)));
+    return 1;
+}
+int LuaEngine::L_ScrollGetPos(lua_State* L) {
+    lua_pushinteger(L, winauto::ScrollGetPos(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2)));
+    return 1;
+}
+int LuaEngine::L_ScrollGetRange(lua_State* L) {
+    int mn = 0, mx = 0;
+    winauto::ScrollGetRange(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2), &mn, &mx);
+    lua_pushinteger(L, mn);
+    lua_pushinteger(L, mx);
+    return 2;
+}
+int LuaEngine::L_TabGetSel(lua_State* L) {
+    lua_pushinteger(L, winauto::TabGetCurSel(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_TabSetSel(lua_State* L) {
+    lua_pushboolean(L, winauto::TabSetCurSel(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2)));
+    return 1;
+}
+int LuaEngine::L_TabGetCountLua(lua_State* L) {
+    lua_pushinteger(L, winauto::TabGetCount(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_TreeViewGetCountLua(lua_State* L) {
+    lua_pushinteger(L, winauto::TreeViewGetCount(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_TreeViewGetSelLua(lua_State* L) {
+    intptr_t h = winauto::TreeViewGetSelection(ToHwnd(L, 1));
+    if (h) lua_pushinteger(L, h); else lua_pushnil(L);
+    return 1;
+}
+int LuaEngine::L_TreeViewSelectLua(lua_State* L) {
+    lua_pushboolean(L, winauto::TreeViewSelectItem(ToHwnd(L, 1), (intptr_t)luaL_checkinteger(L, 2)));
+    return 1;
+}
+int LuaEngine::L_ListViewGetCountLua(lua_State* L) {
+    lua_pushinteger(L, winauto::ListViewGetItemCount(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_ListViewGetSelCountLua(lua_State* L) {
+    lua_pushinteger(L, winauto::ListViewGetSelectedCount(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_ListViewNextSelLua(lua_State* L) {
+    int idx = winauto::ListViewGetNextSelected(ToHwnd(L, 1), (int)luaL_optinteger(L, 2, -1));
+    if (idx >= 0) lua_pushinteger(L, idx); else lua_pushnil(L);
+    return 1;
+}
+int LuaEngine::L_FindChildByClassLua(lua_State* L) {
+    const char* cls = luaL_checkstring(L, 2);
+    int index = (int)luaL_optinteger(L, 3, 0);
+    PushHwnd(L, winauto::FindChildByClass(ToHwnd(L, 1), Utf8ToWide(cls ? cls : ""), index));
+    return 1;
+}
+int LuaEngine::L_FindChildByTextLua(lua_State* L) {
+    const char* txt = luaL_checkstring(L, 2);
+    PushHwnd(L, winauto::FindChildByText(ToHwnd(L, 1), Utf8ToWide(txt ? txt : "")));
+    return 1;
+}
+int LuaEngine::L_ScreenCapture(lua_State* L) {
+    int x = (int)luaL_checkinteger(L, 1);
+    int y = (int)luaL_checkinteger(L, 2);
+    int w = (int)luaL_checkinteger(L, 3);
+    int h = (int)luaL_checkinteger(L, 4);
+    const char* path = luaL_checkstring(L, 5);
+    lua_pushboolean(L, winauto::ScreenCaptureRect(x, y, w, h, Utf8ToWide(path ? path : "")));
+    return 1;
+}
+int LuaEngine::L_MonitorCount(lua_State* L) {
+    lua_pushinteger(L, winauto::GetMonitorCount());
+    return 1;
+}
+int LuaEngine::L_MonitorRect(lua_State* L) {
+    RECT rc{};
+    if (winauto::GetMonitorRect((int)luaL_checkinteger(L, 1), &rc)) {
+        lua_pushinteger(L, rc.left);
+        lua_pushinteger(L, rc.top);
+        lua_pushinteger(L, rc.right - rc.left);
+        lua_pushinteger(L, rc.bottom - rc.top);
+        return 4;
+    }
+    lua_pushnil(L);
+    return 1;
+}
+int LuaEngine::L_SystemDpi(lua_State* L) {
+    lua_pushinteger(L, winauto::GetSystemDpi());
+    return 1;
+}
+int LuaEngine::L_WindowDpiLua(lua_State* L) {
+    lua_pushinteger(L, winauto::GetWindowDpi(ToHwnd(L, 1)));
+    return 1;
+}
+int LuaEngine::L_RegRead(lua_State* L) {
+    const char* key = luaL_checkstring(L, 1);
+    const char* val = luaL_checkstring(L, 2);
+    std::wstring r = winauto::RegReadString(Utf8ToWide(key ? key : ""), Utf8ToWide(val ? val : ""));
+    if (r.empty()) { lua_pushnil(L); return 1; }
+    std::string u = WideToUtf8(r);
+    lua_pushlstring(L, u.c_str(), u.size());
+    return 1;
+}
+int LuaEngine::L_RegWrite(lua_State* L) {
+    const char* key = luaL_checkstring(L, 1);
+    const char* val = luaL_checkstring(L, 2);
+    const char* data = luaL_checkstring(L, 3);
+    lua_pushboolean(L, winauto::RegWriteString(Utf8ToWide(key ? key : ""), Utf8ToWide(val ? val : ""), Utf8ToWide(data ? data : "")));
+    return 1;
+}
+int LuaEngine::L_RegReadDwordLua(lua_State* L) {
+    const char* key = luaL_checkstring(L, 1);
+    const char* val = luaL_checkstring(L, 2);
+    uint32_t def = (uint32_t)luaL_optinteger(L, 3, 0);
+    lua_pushinteger(L, winauto::RegReadDword(Utf8ToWide(key ? key : ""), Utf8ToWide(val ? val : ""), def));
+    return 1;
+}
+int LuaEngine::L_RegWriteDwordLua(lua_State* L) {
+    const char* key = luaL_checkstring(L, 1);
+    const char* val = luaL_checkstring(L, 2);
+    uint32_t data = (uint32_t)luaL_checkinteger(L, 3);
+    lua_pushboolean(L, winauto::RegWriteDword(Utf8ToWide(key ? key : ""), Utf8ToWide(val ? val : ""), data));
+    return 1;
+}
+int LuaEngine::L_EnvGetLua(lua_State* L) {
+    const char* name = luaL_checkstring(L, 1);
+    std::wstring r = winauto::EnvGet(Utf8ToWide(name ? name : ""));
+    if (r.empty()) { lua_pushnil(L); return 1; }
+    std::string u = WideToUtf8(r);
+    lua_pushlstring(L, u.c_str(), u.size());
+    return 1;
+}
+int LuaEngine::L_EnvSetLua(lua_State* L) {
+    const char* name = luaL_checkstring(L, 1);
+    const char* val = luaL_checkstring(L, 2);
+    lua_pushboolean(L, winauto::EnvSet(Utf8ToWide(name ? name : ""), Utf8ToWide(val ? val : "")));
+    return 1;
+}
+int LuaEngine::L_FileExistsLua(lua_State* L) {
+    const char* p = luaL_checkstring(L, 1);
+    lua_pushboolean(L, winauto::FileExists(Utf8ToWide(p ? p : "")));
+    return 1;
+}
+int LuaEngine::L_DirExistsLua(lua_State* L) {
+    const char* p = luaL_checkstring(L, 1);
+    lua_pushboolean(L, winauto::DirExists(Utf8ToWide(p ? p : "")));
+    return 1;
+}
+int LuaEngine::L_FileDeleteLua(lua_State* L) {
+    const char* p = luaL_checkstring(L, 1);
+    lua_pushboolean(L, winauto::FileDelete(Utf8ToWide(p ? p : "")));
+    return 1;
+}
+int LuaEngine::L_DirCreateLua(lua_State* L) {
+    const char* p = luaL_checkstring(L, 1);
+    lua_pushboolean(L, winauto::DirCreate(Utf8ToWide(p ? p : "")));
+    return 1;
+}
+int LuaEngine::L_FileSizeLua(lua_State* L) {
+    const char* p = luaL_checkstring(L, 1);
+    lua_pushinteger(L, (lua_Integer)winauto::FileSize(Utf8ToWide(p ? p : "")));
+    return 1;
+}
+int LuaEngine::L_MsgBoxLua(lua_State* L) {
+    const char* text = luaL_checkstring(L, 1);
+    const char* title = luaL_optstring(L, 2, "AutoClicker-Pro");
+    uint32_t flags = (uint32_t)luaL_optinteger(L, 3, 0);
+    lua_pushinteger(L, winauto::MsgBox(Utf8ToWide(text ? text : ""), Utf8ToWide(title ? title : ""), flags));
+    return 1;
+}
+int LuaEngine::L_Sleep(lua_State* L) {
+    auto* self = Self(L);
+    if (!self) return 0;
+    int64_t ms = luaL_checkinteger(L, 1);
+    self->WaitMicrosCancelable(ms * 1000);
     return 0;
 }

@@ -832,9 +832,9 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
         // Draw popup on foreground so it's above syntax highlighting
         fg->PushClipRect(pMin, pMax, true);
 
-        // Opaque background + border
-        fg->AddRectFilled(pMin, pMax, IM_COL32(33, 36, 46, 252), 6.0f * s);
-        fg->AddRect(pMin, pMax, IM_COL32(77, 82, 115, 200), 6.0f * s, 0, 1.0f);
+        // Opaque background + border (match theme)
+        fg->AddRectFilled(pMin, pMax, IM_COL32(38, 32, 68, 245), 6.0f * s);
+        fg->AddRect(pMin, pMax, IM_COL32(100, 80, 160, 200), 6.0f * s, 0, 1.0f);
 
         float cy = popupY + pad;
 
@@ -851,7 +851,7 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
         }
 
         // Separator
-        fg->AddLine(ImVec2(popupX + pad, cy), ImVec2(pMax.x - pad, cy), IM_COL32(77, 82, 115, 150), 1.0f);
+        fg->AddLine(ImVec2(popupX + pad, cy), ImVec2(pMax.x - pad, cy), IM_COL32(100, 80, 160, 150), 1.0f);
         cy += 4.0f * s;
 
         // List items with mouse interaction
@@ -882,9 +882,9 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
             }
 
             if (sel)
-                fg->AddRectFilled(iMin, iMax, IM_COL32(51, 77, 140, 153), 3.0f * s);
+                fg->AddRectFilled(iMin, iMax, IM_COL32(80, 60, 140, 153), 3.0f * s);
             else if (hovered)
-                fg->AddRectFilled(iMin, iMax, IM_COL32(64, 89, 153, 100), 3.0f * s);
+                fg->AddRectFilled(iMin, iMax, IM_COL32(70, 55, 130, 100), 3.0f * s);
 
             const char* nm = docs[di].name ? docs[di].name : "";
             const char* gr = docs[di].group ? docs[di].group : "";
@@ -901,7 +901,7 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
         cy += listH;
 
         // Separator
-        fg->AddLine(ImVec2(popupX + pad, cy), ImVec2(pMax.x - pad, cy), IM_COL32(77, 82, 115, 150), 1.0f);
+        fg->AddLine(ImVec2(popupX + pad, cy), ImVec2(pMax.x - pad, cy), IM_COL32(100, 80, 160, 150), 1.0f);
         cy += 4.0f * s;
 
         // Detail area
@@ -1066,13 +1066,59 @@ static void DrawLuaDocsPanel(LuaScriptUiState* ui, float height, bool disabled) 
     if (disabled) ImGui::EndDisabled();
     ImGui::Separator();
     ImGui::BeginChild("##lua_docs_list", ImVec2(-1, height * 0.55f), true);
-    for (int i = 0; i < (int)docs.size(); ++i) {
-        const auto& d = docs[i];
-        const bool pass = ui->docsFilter.empty() || ContainsCaseInsensitive(d.name, ui->docsFilter) || ContainsCaseInsensitive(d.signature, ui->docsFilter) || ContainsCaseInsensitive(d.group, ui->docsFilter);
-        if (!pass) continue;
-        const bool selected = (ui->docsSelected == i);
-        std::string label = (d.group ? std::string(d.group) : std::string()) + "  " + (d.name ? d.name : "");
-        if (ImGui::Selectable(label.c_str(), selected)) ui->docsSelected = i;
+    {
+        // Pre-filter to get visible indices
+        static std::vector<int> filteredIdx;
+        filteredIdx.clear();
+        for (int i = 0; i < (int)docs.size(); ++i) {
+            const auto& d = docs[i];
+            if (ui->docsFilter.empty() || ContainsCaseInsensitive(d.name, ui->docsFilter) || ContainsCaseInsensitive(d.signature, ui->docsFilter) || ContainsCaseInsensitive(d.group, ui->docsFilter))
+                filteredIdx.push_back(i);
+        }
+
+        const float gutterW = ImGui::CalcTextSize("000").x + 12.0f;
+        const ImVec2 winPos = ImGui::GetWindowPos();
+        const ImVec2 winSize = ImGui::GetWindowSize();
+        const float lineH = ImGui::GetTextLineHeightWithSpacing();
+        const float scrollY = ImGui::GetScrollY();
+        const float padY = ImGui::GetStyle().WindowPadding.y;
+
+        // Gutter bg + line numbers on ForegroundDrawList, clipped to this child window
+        ImDrawList* fgDl = ImGui::GetForegroundDrawList();
+        fgDl->PushClipRect(winPos, ImVec2(winPos.x + winSize.x, winPos.y + winSize.y), true);
+        fgDl->AddRectFilled(ImVec2(winPos.x, winPos.y), ImVec2(winPos.x + gutterW, winPos.y + winSize.y),
+                          IM_COL32(46, 38, 76, 200));
+        fgDl->AddLine(ImVec2(winPos.x + gutterW, winPos.y), ImVec2(winPos.x + gutterW, winPos.y + winSize.y),
+                      IM_COL32(140, 115, 217, 102), 1.0f);
+
+        // Draw line numbers for visible range
+        char gutterBuf[16];
+        const int totalItems = (int)filteredIdx.size();
+        for (int vi = 0; vi < totalItems; ++vi) {
+            float lineY = winPos.y + padY + vi * lineH - scrollY;
+            if (lineY < winPos.y - lineH) continue;
+            if (lineY > winPos.y + winSize.y) break;
+            snprintf(gutterBuf, sizeof(gutterBuf), "%3d", vi + 1);
+            float numW = ImGui::CalcTextSize(gutterBuf).x;
+            fgDl->AddText(ImVec2(winPos.x + gutterW - numW - 4.0f, lineY),
+                        IM_COL32(160, 150, 200, 220), gutterBuf);
+        }
+        fgDl->PopClipRect();
+
+        // Render items with indent past gutter
+        ImGui::Indent(gutterW + 4.0f);
+        ImGuiListClipper clipper;
+        clipper.Begin(totalItems);
+        while (clipper.Step()) {
+            for (int vi = clipper.DisplayStart; vi < clipper.DisplayEnd; ++vi) {
+                const int i = filteredIdx[vi];
+                const auto& d = docs[i];
+                const bool selected = (ui->docsSelected == i);
+                std::string label = (d.group ? std::string(d.group) : std::string()) + "  " + (d.name ? d.name : "");
+                if (ImGui::Selectable(label.c_str(), selected)) ui->docsSelected = i;
+            }
+        }
+        ImGui::Unindent(gutterW + 4.0f);
     }
     ImGui::EndChild();
     ImGui::Separator();
