@@ -163,6 +163,10 @@ private:
     ScheduledTask editTask_{};
     int schedSelectedTask_{ -1 };
     int schedDetailTab_{ 0 };       // 0=info, 1=history
+    bool schedEditingExisting_{ false }; // true = editing selected task, false = new task
+    bool schedFormExpanded_{ true };     // top form collapsed/expanded
+    int  schedDeleteConfirmId_{ -1 };    // task id pending delete confirmation
+    std::string schedValidationMsg_;     // inline validation error message
 
     // Splitter ratios (persisted)
     float simpleCol1Ratio_{ 0.30f };  // 录制回放: left column

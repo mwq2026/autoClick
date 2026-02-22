@@ -194,11 +194,13 @@ static bool GlowButton(const char* label, const ImVec2& sizeArg, ImU32 colLeft, 
     // Rounded corners overlay (draw rounded rect border to mask corners)
     dl->AddRect(pos, br, IM_COL32(255, 255, 255, hovered ? 80 : 40), r, 0, 1.5f * s);
 
-    // Label centered
-    const ImVec2 textSz = ImGui::CalcTextSize(label);
+    // Label centered — strip ## ID suffix for display
+    const char* labelEnd = strstr(label, "##");
+    const char* displayEnd = labelEnd ? labelEnd : label + strlen(label);
+    const ImVec2 textSz = ImGui::CalcTextSize(label, labelEnd);
     dl->AddText(
         ImVec2(pos.x + (size.x - textSz.x) * 0.5f, pos.y + (size.y - textSz.y) * 0.5f),
-        IM_COL32(255, 255, 255, 240), label);
+        IM_COL32(255, 255, 255, 240), label, displayEnd);
 
     return clicked;
 }
@@ -1740,9 +1742,9 @@ void App::DrawSchedulerMode() {
     editorRectValid_ = false;
     const float s = UiScale();
     const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const float gap = 8.0f * s;
+    const float gap = 6.0f * s;
     const float fullW = avail.x;
-    const float fullH = avail.y;
+    const float fullH = avail.y - 36.0f * s; // reserve space for status bar
 
     auto tasks = scheduler_.GetTasks();
     const int taskCount = (int)tasks.size();
@@ -1750,82 +1752,229 @@ void App::DrawSchedulerMode() {
 
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.08f, 0.06f, 0.18f, 0.60f));
 
-    // ── TOP AREA: Editor row (任务配置 | 调度设置) side by side, then 执行动作 + buttons ──
-    const float topH = fullH * 0.48f;
-    const float bottomH = fullH - topH - gap;
-
-    ImGui::BeginChild("##sched_top", ImVec2(fullW, topH), false);
+    // ── TOP: Collapsible form header bar ───────────────────────────────────
+    const float hdrH = 30.0f * s;
     {
-        const float cardGap = 6.0f * s;
-
-        // ── Row 1: Two cards side by side (resizable) ──
-        const float row1H = topH - 56.0f * s;
-        const float schedCol2Ratio = 1.0f - schedCol1Ratio_;
-
-        if (ImGui::BeginTable("##sched_top_tbl", 2,
-            ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_NoSavedSettings,
-            ImVec2(0, row1H)))
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.10f, 0.22f, 0.70f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f * s);
+        ImGui::BeginChild("##sched_form_hdr", ImVec2(0, hdrH), true, ImGuiWindowFlags_NoScrollbar);
         {
-            ImGui::TableSetupColumn("任务配置", ImGuiTableColumnFlags_WidthStretch, schedCol1Ratio_);
-            ImGui::TableSetupColumn("调度设置", ImGuiTableColumnFlags_WidthStretch, schedCol2Ratio);
+            const float cy = (hdrH - ImGui::GetTextLineHeight()) * 0.5f;
+            ImGui::SetCursorPosY(cy);
 
-            // LEFT: 任务配置
-            ImGui::TableNextColumn();
+            // Full-width clickable area for collapse toggle
+            ImVec2 hdrPos = ImGui::GetCursorScreenPos();
+            ImVec2 hdrSize(fullW * 0.30f, ImGui::GetTextLineHeightWithSpacing());
+            if (ImGui::InvisibleButton("##sched_toggle", hdrSize)) {
+                schedFormExpanded_ = !schedFormExpanded_;
+            }
+            bool hdrHovered = ImGui::IsItemHovered();
+
+            // Draw the toggle label on top (compute title here so it reflects latest state)
+            const char* formTitle = schedEditingExisting_ ? "编辑任务" : "新建任务";
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            char hdrLabel[128];
+            snprintf(hdrLabel, sizeof(hdrLabel), "%s %s", schedFormExpanded_ ? "-" : "+", formTitle);
+            ImU32 hdrCol;
+            if (schedEditingExisting_) {
+                hdrCol = hdrHovered ? IM_COL32(255, 220, 120, 255) : IM_COL32(240, 200, 80, 255);
+            } else {
+                hdrCol = hdrHovered ? IM_COL32(220, 210, 255, 255) : IM_COL32(180, 170, 220, 255);
+            }
+            dl->AddText(hdrPos, hdrCol, hdrLabel);
+
+            if (schedEditingExisting_) {
+                ImGui::SameLine(fullW * 0.30f + 8.0f * s);
+                ImGui::SetCursorPosY(cy);
+                ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 0.9f), "(正在编辑: %s)", editTask_.name.c_str());
+            }
+
+            // Stats on the right
+            const float statsX = fullW - 320.0f * s;
+            if (statsX > ImGui::GetCursorPosX()) ImGui::SameLine(statsX);
+            ImGui::SetCursorPosY(cy);
+            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "总任务: %d", taskCount);
+            ImGui::SameLine(0, 16.0f * s);
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.6f, 1.0f), "活跃: %d", activeCount);
+            ImGui::SameLine(0, 16.0f * s);
+            ImGui::TextColored(ImVec4(0.6f, 0.5f, 0.8f, 0.8f), "完成: %d", taskCount - activeCount);
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
+    }
+
+    float formUsedH = hdrH + ImGui::GetStyle().ItemSpacing.y;
+
+    // ── Expanded form: two-column card layout (compact inline labels) ──────
+    if (schedFormExpanded_) {
+        const float cardGap = 6.0f * s;
+        const float labelW = 56.0f * s; // fixed label width for alignment
+        const float frameH = ImGui::GetFrameHeight();
+        // Calculate card height: 4 rows per card * (frameH + spacing) + title + padding
+        const float rowSpacing = 3.0f * s;
+        const float cardInnerH = 4.0f * (frameH + rowSpacing) + frameH + 12.0f * s; // title + 4 rows + padding
+        const float cardH = cardInnerH + 16.0f * s; // card chrome
+        const float actionRowH = frameH * 2.0f + 20.0f * s; // action controls row + button row
+        const float formH = cardH + actionRowH + 12.0f * s;
+
+        ImGui::BeginChild("##sched_form_area", ImVec2(fullW, formH), false);
+        {
+            const float col1W = fullW * schedCol1Ratio_ - cardGap * 0.5f;
+            const float col2W = fullW * (1.0f - schedCol1Ratio_) - cardGap * 0.5f;
+
+            // ── Left card: 任务配置 (inline labels) ──
+            BeginGlassCard("##sched_cfg_card", "任务配置", ImVec2(col1W, cardH));
             {
-                const float inputW = ImGui::GetContentRegionAvail().x - 8.0f * s;
-                const float cardH = ImGui::GetContentRegionAvail().y;
-            BeginGlassScrollCard("##sched_cfg_card", "任务配置", ImVec2(0, cardH));
-            {
-                ImGui::Text("任务名称");
+                const float inputW = ImGui::GetContentRegionAvail().x - labelW;
+
+                // Row 1: 名称
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text("名称");
+                ImGui::SameLine(labelW);
                 ImGui::SetNextItemWidth(inputW);
                 char nameBuf[128]{}; strncpy_s(nameBuf, editTask_.name.c_str(), _TRUNCATE);
                 if (ImGui::InputText("##task_name", nameBuf, sizeof(nameBuf))) editTask_.name = nameBuf;
 
-                ImGui::Spacing();
+                // Row 2: 描述
+                ImGui::AlignTextToFramePadding();
                 ImGui::Text("描述");
+                ImGui::SameLine(labelW);
                 ImGui::SetNextItemWidth(inputW);
                 char descBuf[256]{}; strncpy_s(descBuf, editTask_.description.c_str(), _TRUNCATE);
                 if (ImGui::InputText("##task_desc", descBuf, sizeof(descBuf))) editTask_.description = descBuf;
 
-                ImGui::Spacing();
+                // Row 3: 类型
+                ImGui::AlignTextToFramePadding();
                 ImGui::Text("类型");
+                ImGui::SameLine(labelW);
                 const char* typeLabels[] = { "指定日期", "周期执行" };
                 int typeInt = (int)editTask_.type;
                 ImGui::SetNextItemWidth(inputW);
                 if (ImGui::Combo("##task_type", &typeInt, typeLabels, 2)) editTask_.type = (TaskType)typeInt;
 
-                ImGui::Spacing();
+                // Row 4: 优先级
+                ImGui::AlignTextToFramePadding();
                 ImGui::Text("优先级");
+                ImGui::SameLine(labelW);
                 const char* prioLabels[] = { "普通", "高", "紧急" };
                 ImGui::SetNextItemWidth(inputW);
                 ImGui::Combo("##task_prio", &editTask_.priority, prioLabels, 3);
             }
             EndGlassCard();
-            }
 
-            // RIGHT: 调度设置
-            ImGui::TableNextColumn();
+            ImGui::SameLine(0, cardGap);
+
+            // ── Right card: 调度设置 (inline labels) ──
+            BeginGlassCard("##sched_time_card", "调度设置", ImVec2(col2W, cardH));
             {
-                const float inputW = ImGui::GetContentRegionAvail().x - 8.0f * s;
-                const float cardH = ImGui::GetContentRegionAvail().y;
-            BeginGlassScrollCard("##sched_time_card", "调度设置", ImVec2(0, cardH));
-            {
+                const float inputW = ImGui::GetContentRegionAvail().x - labelW;
+
                 if (editTask_.type == TaskType::OneShot) {
-                    ImGui::Text("日期");
-                    ImGui::SetNextItemWidth(inputW);
-                    char dateBuf[32]{}; strncpy_s(dateBuf, editTask_.dateStr.c_str(), _TRUNCATE);
-                    if (ImGui::InputText("##task_date", dateBuf, sizeof(dateBuf))) editTask_.dateStr = dateBuf;
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("格式: YYYY-MM-DD");
+                    // Initialize date/time to now + 1 hour if empty
+                    if (editTask_.dateStr.empty() || editTask_.timeStr.empty()) {
+                        int64_t defEp = Scheduler::NowEpochSeconds() + 3600;
+                        time_t defSec = (time_t)defEp;
+                        struct tm defTm{}; localtime_s(&defTm, &defSec);
+                        char db[32], tb[32];
+                        snprintf(db, sizeof(db), "%04d-%02d-%02d", defTm.tm_year + 1900, defTm.tm_mon + 1, defTm.tm_mday);
+                        snprintf(tb, sizeof(tb), "%02d:%02d:%02d", defTm.tm_hour, defTm.tm_min, defTm.tm_sec);
+                        if (editTask_.dateStr.empty()) editTask_.dateStr = db;
+                        if (editTask_.timeStr.empty()) editTask_.timeStr = tb;
+                    }
 
-                    ImGui::Spacing();
+                    // Row 1: 日期 (YYYY-MM-DD with separate int fields)
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::Text("日期");
+                    ImGui::SameLine(labelW);
+                    {
+                        int dateY = 2026, dateM = 1, dateD = 1;
+                        sscanf_s(editTask_.dateStr.c_str(), "%d-%d-%d", &dateY, &dateM, &dateD);
+                        bool changed = false;
+                        const float partW = inputW * 0.28f;
+                        ImGui::SetNextItemWidth(partW);
+                        if (ImGui::InputInt("##date_y", &dateY, 0, 0)) changed = true;
+                        dateY = std::clamp(dateY, 2020, 2099);
+                        ImGui::SameLine(0, 1.0f * s); ImGui::Text("-"); ImGui::SameLine(0, 1.0f * s);
+                        ImGui::SetNextItemWidth(partW * 0.6f);
+                        if (ImGui::InputInt("##date_m", &dateM, 0, 0)) changed = true;
+                        dateM = std::clamp(dateM, 1, 12);
+                        ImGui::SameLine(0, 1.0f * s); ImGui::Text("-"); ImGui::SameLine(0, 1.0f * s);
+                        ImGui::SetNextItemWidth(partW * 0.6f);
+                        if (ImGui::InputInt("##date_d", &dateD, 0, 0)) changed = true;
+                        dateD = std::clamp(dateD, 1, 31);
+                        // Clamp day to valid range for month
+                        {
+                            int maxDay = 31;
+                            if (dateM == 2) maxDay = (dateY % 4 == 0 && (dateY % 100 != 0 || dateY % 400 == 0)) ? 29 : 28;
+                            else if (dateM == 4 || dateM == 6 || dateM == 9 || dateM == 11) maxDay = 30;
+                            if (dateD > maxDay) dateD = maxDay;
+                        }
+                        char dateFmt[32];
+                        snprintf(dateFmt, sizeof(dateFmt), "%04d-%02d-%02d", dateY, dateM, dateD);
+                        editTask_.dateStr = dateFmt;
+                    }
+
+                    // Row 2: 时间 (HH:MM:SS with separate int fields)
+                    ImGui::AlignTextToFramePadding();
                     ImGui::Text("时间");
-                    ImGui::SetNextItemWidth(inputW);
-                    char timeBuf[32]{}; strncpy_s(timeBuf, editTask_.timeStr.c_str(), _TRUNCATE);
-                    if (ImGui::InputText("##task_time", timeBuf, sizeof(timeBuf))) editTask_.timeStr = timeBuf;
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("格式: HH:MM:SS");
+                    ImGui::SameLine(labelW);
+                    {
+                        int tH = 0, tM = 0, tS = 0;
+                        sscanf_s(editTask_.timeStr.c_str(), "%d:%d:%d", &tH, &tM, &tS);
+                        const float partW = inputW * 0.28f;
+                        ImGui::SetNextItemWidth(partW * 0.6f);
+                        if (ImGui::InputInt("##time_h", &tH, 0, 0)) {}
+                        tH = std::clamp(tH, 0, 23);
+                        ImGui::SameLine(0, 1.0f * s); ImGui::Text(":"); ImGui::SameLine(0, 1.0f * s);
+                        ImGui::SetNextItemWidth(partW * 0.6f);
+                        if (ImGui::InputInt("##time_m", &tM, 0, 0)) {}
+                        tM = std::clamp(tM, 0, 59);
+                        ImGui::SameLine(0, 1.0f * s); ImGui::Text(":"); ImGui::SameLine(0, 1.0f * s);
+                        ImGui::SetNextItemWidth(partW * 0.6f);
+                        if (ImGui::InputInt("##time_s", &tS, 0, 0)) {}
+                        tS = std::clamp(tS, 0, 59);
+                        char timeFmt[32];
+                        snprintf(timeFmt, sizeof(timeFmt), "%02d:%02d:%02d", tH, tM, tS);
+                        editTask_.timeStr = timeFmt;
+                    }
+
+                    // Row 3: 时间窗口
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::Text("时间窗");
+                    ImGui::SameLine(labelW);
+                    ImGui::SetNextItemWidth(inputW * 0.4f);
+                    ImGui::InputInt("##tw_start", &editTask_.windowStartHour, 0, 0);
+                    if (editTask_.windowStartHour < 0) editTask_.windowStartHour = 0;
+                    if (editTask_.windowStartHour > 23) editTask_.windowStartHour = 23;
+                    ImGui::SameLine(0, 2.0f * s);
+                    ImGui::Text("~");
+                    ImGui::SameLine(0, 2.0f * s);
+                    ImGui::SetNextItemWidth(inputW * 0.4f);
+                    ImGui::InputInt("##tw_end", &editTask_.windowEndHour, 0, 0);
+                    if (editTask_.windowEndHour < 0) editTask_.windowEndHour = 0;
+                    if (editTask_.windowEndHour > 23) editTask_.windowEndHour = 23;
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("0~0 = 不限制");
+
+                    // Row 4: 重试
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::Text("重试");
+                    ImGui::SameLine(labelW);
+                    ImGui::SetNextItemWidth(inputW * 0.35f);
+                    ImGui::InputInt("##retry_cnt", &editTask_.retryCount, 0, 0);
+                    if (editTask_.retryCount < 0) editTask_.retryCount = 0;
+                    ImGui::SameLine(0, 4.0f * s);
+                    ImGui::Text("间隔");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(inputW * 0.35f);
+                    ImGui::InputInt("##retry_delay", &editTask_.retryDelaySec, 0, 0);
+                    if (editTask_.retryDelaySec < 1) editTask_.retryDelaySec = 1;
                 } else {
-                    ImGui::Text("执行间隔");
-                    ImGui::SetNextItemWidth(inputW * 0.45f);
+                    // Row 1: 间隔
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::Text("间隔");
+                    ImGui::SameLine(labelW);
+                    ImGui::SetNextItemWidth(inputW * 0.4f);
                     ImGui::InputInt("##task_interval", &editTask_.interval, 1, 10);
                     if (editTask_.interval < 1) editTask_.interval = 1;
                     ImGui::SameLine();
@@ -1834,346 +1983,577 @@ void App::DrawSchedulerMode() {
                     ImGui::SetNextItemWidth(inputW * 0.5f);
                     if (ImGui::Combo("##task_unit", &unitInt, unitLabels, 5)) editTask_.unit = (PeriodUnit)unitInt;
 
-                    ImGui::Spacing();
-                    ImGui::Text("最大执行次数");
-                    ImGui::SetNextItemWidth(inputW);
-                    ImGui::InputInt("##task_maxruns", &editTask_.maxRuns, 1, 10);
+                    // Row 2: 最大次数 + 首延迟
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::Text("最大次数");
+                    ImGui::SameLine(labelW);
+                    ImGui::SetNextItemWidth(inputW * 0.4f);
+                    ImGui::InputInt("##task_maxruns", &editTask_.maxRuns, 0, 0);
                     if (editTask_.maxRuns < 0) editTask_.maxRuns = 0;
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 = 无限循环");
-
-                    ImGui::Spacing();
-                    ImGui::Text("首次延迟 (秒)");
-                    ImGui::SetNextItemWidth(inputW);
-                    ImGui::InputInt("##task_delay", &editTask_.startDelaySec, 1, 10);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 = 无限");
+                    ImGui::SameLine(0, 8.0f * s);
+                    ImGui::Text("首延");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(inputW * 0.3f);
+                    ImGui::InputInt("##task_delay", &editTask_.startDelaySec, 0, 0);
                     if (editTask_.startDelaySec < 0) editTask_.startDelaySec = 0;
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("首次执行延迟(秒)");
+
+                    // Row 3: 时间窗口
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::Text("时间窗");
+                    ImGui::SameLine(labelW);
+                    ImGui::SetNextItemWidth(inputW * 0.4f);
+                    ImGui::InputInt("##tw_start", &editTask_.windowStartHour, 0, 0);
+                    if (editTask_.windowStartHour < 0) editTask_.windowStartHour = 0;
+                    if (editTask_.windowStartHour > 23) editTask_.windowStartHour = 23;
+                    ImGui::SameLine(0, 2.0f * s);
+                    ImGui::Text("~");
+                    ImGui::SameLine(0, 2.0f * s);
+                    ImGui::SetNextItemWidth(inputW * 0.4f);
+                    ImGui::InputInt("##tw_end", &editTask_.windowEndHour, 0, 0);
+                    if (editTask_.windowEndHour < 0) editTask_.windowEndHour = 0;
+                    if (editTask_.windowEndHour > 23) editTask_.windowEndHour = 23;
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("0~0 = 不限制");
+
+                    // Row 4: 重试
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::Text("重试");
+                    ImGui::SameLine(labelW);
+                    ImGui::SetNextItemWidth(inputW * 0.35f);
+                    ImGui::InputInt("##retry_cnt", &editTask_.retryCount, 0, 0);
+                    if (editTask_.retryCount < 0) editTask_.retryCount = 0;
+                    ImGui::SameLine(0, 4.0f * s);
+                    ImGui::Text("间隔");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(inputW * 0.35f);
+                    ImGui::InputInt("##retry_delay", &editTask_.retryDelaySec, 0, 0);
+                    if (editTask_.retryDelaySec < 1) editTask_.retryDelaySec = 1;
                 }
-
-                ImGui::Spacing();
-                ImGui::Separator();
-                ImGui::Spacing();
-                ImGui::Text("时间窗口 (小时)");
-                ImGui::SetNextItemWidth(inputW * 0.4f);
-                ImGui::InputInt("##tw_start", &editTask_.windowStartHour, 1, 1);
-                if (editTask_.windowStartHour < 0) editTask_.windowStartHour = 0;
-                if (editTask_.windowStartHour > 23) editTask_.windowStartHour = 23;
-                ImGui::SameLine();
-                ImGui::Text("~");
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(inputW * 0.35f);
-                ImGui::InputInt("##tw_end", &editTask_.windowEndHour, 1, 1);
-                if (editTask_.windowEndHour < 0) editTask_.windowEndHour = 0;
-                if (editTask_.windowEndHour > 23) editTask_.windowEndHour = 23;
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("0~0 = 不限制");
-
-                ImGui::Spacing();
-                ImGui::Text("失败重试");
-                ImGui::SetNextItemWidth(inputW * 0.4f);
-                ImGui::InputInt("##retry_cnt", &editTask_.retryCount, 1, 1);
-                if (editTask_.retryCount < 0) editTask_.retryCount = 0;
-                ImGui::SameLine();
-                ImGui::Text("间隔");
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(inputW * 0.3f);
-                ImGui::InputInt("##retry_delay", &editTask_.retryDelaySec, 1, 5);
-                if (editTask_.retryDelaySec < 1) editTask_.retryDelaySec = 1;
             }
             EndGlassCard();
-            }
 
-            // Track column ratios
+            ImGui::Spacing();
+
+            // ── Action row: full width ──
             {
-                const ImGuiTable* tbl = ImGui::GetCurrentTable();
-                if (tbl) {
-                    float totalW = tbl->Columns[0].WidthGiven + tbl->Columns[1].WidthGiven;
-                    if (totalW > 0) schedCol1Ratio_ = tbl->Columns[0].WidthGiven / totalW;
-                }
-            }
-            ImGui::EndTable();
-        }
-
-        ImGui::Dummy(ImVec2(0, cardGap));
-
-        // ── Row 2: 执行动作 (full width) + buttons ──
-        {
-            const float actInputW = fullW * 0.55f;
-            ImGui::AlignTextToFramePadding();
-            ImGui::Text("动作:");
-            ImGui::SameLine();
-            const char* actionLabels[] = { "TRC 回放", "Lua 脚本" };
-            ImGui::SetNextItemWidth(100.0f * s);
-            ImGui::Combo("##task_action", &editTask_.actionMode, actionLabels, 2);
-            ImGui::SameLine(0, 12.0f * s);
-            ImGui::Text("路径:");
-            ImGui::SameLine();
-            char pathBuf[256]{}; strncpy_s(pathBuf, editTask_.actionPath.c_str(), _TRUNCATE);
-            ImGui::SetNextItemWidth(actInputW - 340.0f * s);
-            if (ImGui::InputText("##task_path", pathBuf, sizeof(pathBuf))) editTask_.actionPath = pathBuf;
-            ImGui::SameLine();
-            if (ImGui::Button("浏览##sched")) {
-                wchar_t buf[MAX_PATH]{};
-                const wchar_t* filter = editTask_.actionMode == 0
-                    ? L"Trace File (*.trc)\0*.trc\0\0"
-                    : L"Lua Script (*.lua)\0*.lua\0\0";
-                if (OpenFileDialog(nullptr, buf, MAX_PATH, filter))
-                    editTask_.actionPath = WideToUtf8(std::wstring(buf));
-            }
-            if (editTask_.actionMode == 0) {
-                ImGui::SameLine(0, 12.0f * s);
-                ImGui::Text("速度:");
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text("动作:");
                 ImGui::SameLine();
-                ImGui::SetNextItemWidth(80.0f * s);
-                ImGui::SliderFloat("##act_speed", &editTask_.actionSpeed, 0.1f, 10.0f, "%.1fx");
-                ImGui::SameLine(0, 8.0f * s);
-                ImGui::Checkbox("屏蔽输入", &editTask_.actionBlockInput);
-            }
-
-            // Buttons right-aligned
-            const float btnW = 90.0f * s;
-            const float btnH = 28.0f * s;
-            const float rightEdge = fullW - 2.0f * s;
-            float btnX = rightEdge - btnW * 2 - 8.0f * s;
-            if (btnX > ImGui::GetCursorPosX()) ImGui::SameLine(btnX);
-            else ImGui::SameLine(0, 12.0f * s);
-            if (GlowButton("添加任务", ImVec2(btnW, btnH), IM_COL32(40, 160, 80, 255), IM_COL32(30, 200, 120, 255))) {
-                if (editTask_.name.empty()) editTask_.name = "Task";
-                scheduler_.AddTask(editTask_);
-                SetStatusOk("任务已添加");
-                editTask_ = ScheduledTask{};
-            }
-            ImGui::SameLine();
-            if (GlowButton("清空表单", ImVec2(btnW, btnH), IM_COL32(100, 80, 140, 255), IM_COL32(130, 100, 170, 255))) {
-                editTask_ = ScheduledTask{};
-            }
-        }
-    }
-    ImGui::EndChild(); // top area
-
-    ImGui::Dummy(ImVec2(0, gap));
-
-    // ── BOTTOM AREA: Stats + Task list (left) + Detail (right) ──────────
-    ImGui::BeginChild("##sched_bottom", ImVec2(fullW, bottomH), false);
-    {
-        // ── Stats bar ──
-        {
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.10f, 0.22f, 0.70f));
-            ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f * s);
-            ImGui::BeginChild("##sched_stats", ImVec2(0, 32.0f * s), true, ImGuiWindowFlags_NoScrollbar);
-            ImGui::SetCursorPosY((32.0f * s - ImGui::GetTextLineHeight()) * 0.5f);
-            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "  总任务: %d", taskCount);
-            ImGui::SameLine(0, 24.0f * s);
-            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.6f, 1.0f), "活跃: %d", activeCount);
-            ImGui::SameLine(0, 24.0f * s);
-            ImGui::TextColored(ImVec4(0.6f, 0.5f, 0.8f, 0.8f), "已完成: %d", taskCount - activeCount);
-            ImGui::EndChild();
-            ImGui::PopStyleVar();
-            ImGui::PopStyleColor();
-        }
-
-        ImGui::Spacing();
-
-        const float statsUsed = 32.0f * s + ImGui::GetStyle().ItemSpacing.y * 2;
-        const float contentH = bottomH - statsUsed;
-        const float schedBotCol2Ratio = 1.0f - schedCol1Ratio_;
-
-        if (ImGui::BeginTable("##sched_bot_tbl", 2,
-            ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_NoSavedSettings,
-            ImVec2(0, contentH)))
-        {
-            ImGui::TableSetupColumn("任务列表", ImGuiTableColumnFlags_WidthStretch, schedCol1Ratio_);
-            ImGui::TableSetupColumn("任务详情", ImGuiTableColumnFlags_WidthStretch, schedBotCol2Ratio);
-
-            // ── Task list (left side) ──
-            ImGui::TableNextColumn();
-            {
-                const float listH = ImGui::GetContentRegionAvail().y;
-                BeginGlassScrollCard("##sched_list_card", "任务列表", ImVec2(-1, listH));
-        {
-            if (tasks.empty()) {
-                ImGui::TextColored(ImVec4(0.55f, 0.50f, 0.75f, 0.6f), "暂无定时任务，请在左侧添加");
-            } else {
-                for (int ti = 0; ti < taskCount; ++ti) {
-                    const auto& t = tasks[ti];
-                    ImGui::PushID(t.id);
-
-                    // Status dot
-                    ImVec4 dotCol;
-                    switch (t.status) {
-                    case TaskStatus::Running:  dotCol = ImVec4(0.2f, 0.9f, 0.4f, 1.0f); break;
-                    case TaskStatus::Waiting:  dotCol = ImVec4(0.3f, 0.7f, 1.0f, 1.0f); break;
-                    case TaskStatus::Done:     dotCol = ImVec4(0.5f, 0.5f, 0.5f, 0.8f); break;
-                    case TaskStatus::Failed:   dotCol = ImVec4(1.0f, 0.3f, 0.3f, 1.0f); break;
-                    case TaskStatus::Disabled: dotCol = ImVec4(0.6f, 0.5f, 0.3f, 0.7f); break;
-                    default:                   dotCol = ImVec4(0.5f, 0.5f, 0.6f, 0.6f); break;
-                    }
-
-                    ImDrawList* dl = ImGui::GetWindowDrawList();
-                    ImVec2 cp = ImGui::GetCursorScreenPos();
-                    float dotR = 4.0f * s;
-                    dl->AddCircleFilled(ImVec2(cp.x + dotR + 2.0f * s, cp.y + ImGui::GetTextLineHeight() * 0.5f),
-                        dotR, ImGui::ColorConvertFloat4ToU32(dotCol));
-                    ImGui::Dummy(ImVec2(dotR * 2 + 6.0f * s, 0));
-                    ImGui::SameLine();
-
-                    // Selectable row
-                    bool selected = (schedSelectedTask_ == ti);
-                    char rowLabel[256];
-                    const char* prioMark = t.priority == 2 ? " !!" : (t.priority == 1 ? " !" : "");
-                    snprintf(rowLabel, sizeof(rowLabel), "%s%s  [%s]##row%d",
-                        t.name.c_str(), prioMark, Scheduler::StatusName(t.status), t.id);
-                    if (ImGui::Selectable(rowLabel, selected, ImGuiSelectableFlags_None, ImVec2(0, 0))) {
-                        schedSelectedTask_ = ti;
-                    }
-
-                    // Tooltip with summary
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::BeginTooltip();
-                        ImGui::Text("%s", t.name.c_str());
-                        if (!t.description.empty()) ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.7f, 1.0f), "%s", t.description.c_str());
-                        ImGui::Text("状态: %s  运行: %d次  失败: %d次", Scheduler::StatusName(t.status), t.runCount, t.failCount);
-                        if (t.nextRunTime > 0) ImGui::Text("下次: %s", Scheduler::FormatEpoch(t.nextRunTime).c_str());
-                        ImGui::EndTooltip();
-                    }
-
-                    ImGui::PopID();
+                const char* actionLabels[] = { "TRC 回放", "Lua 脚本" };
+                ImGui::SetNextItemWidth(100.0f * s);
+                ImGui::Combo("##task_action", &editTask_.actionMode, actionLabels, 2);
+                ImGui::SameLine(0, 12.0f * s);
+                ImGui::Text("路径:");
+                ImGui::SameLine();
+                char pathBuf[256]{}; strncpy_s(pathBuf, editTask_.actionPath.c_str(), _TRUNCATE);
+                const float pathMaxW = fullW * 0.25f;
+                ImGui::SetNextItemWidth(pathMaxW);
+                if (ImGui::InputText("##task_path", pathBuf, sizeof(pathBuf))) editTask_.actionPath = pathBuf;
+                ImGui::SameLine();
+                if (ImGui::Button("浏览##sched")) {
+                    wchar_t buf[MAX_PATH]{};
+                    const wchar_t* filter = editTask_.actionMode == 0
+                        ? L"Trace File (*.trc)\0*.trc\0\0"
+                        : L"Lua Script (*.lua)\0*.lua\0\0";
+                    if (OpenFileDialog(nullptr, buf, MAX_PATH, filter))
+                        editTask_.actionPath = WideToUtf8(std::wstring(buf));
                 }
-            }
-        }
-                EndGlassCard();
-            }
-
-            // ── Detail panel (right side) ──
-            ImGui::TableNextColumn();
-            {
-                const float detH = ImGui::GetContentRegionAvail().y;
-                BeginGlassCard("##sched_detail", "任务详情", ImVec2(-1, detH));
-        {
-            if (schedSelectedTask_ >= 0 && schedSelectedTask_ < taskCount) {
-                const auto& sel = tasks[schedSelectedTask_];
-
-                // Tab bar: Info / History
-                ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(0.15f, 0.12f, 0.25f, 0.8f));
-                ImGui::PushStyleColor(ImGuiCol_TabSelected, ImVec4(0.30f, 0.25f, 0.50f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_TabHovered, ImVec4(0.25f, 0.20f, 0.45f, 1.0f));
-                if (ImGui::BeginTabBar("##detail_tabs")) {
-                    if (ImGui::BeginTabItem("信息")) {
-                        schedDetailTab_ = 0;
-                        ImGui::EndTabItem();
-                    }
-                    if (ImGui::BeginTabItem("执行历史")) {
-                        schedDetailTab_ = 1;
-                        ImGui::EndTabItem();
-                    }
-                    ImGui::EndTabBar();
+                if (editTask_.actionMode == 0) {
+                    ImGui::SameLine(0, 16.0f * s);
+                    ImGui::Text("速度:");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(140.0f * s);
+                    ImGui::SliderFloat("##act_speed", &editTask_.actionSpeed, 0.1f, 10.0f, "%.1fx");
+                    ImGui::SameLine(0, 6.0f * s);
+                    ImGui::SetNextItemWidth(60.0f * s);
+                    if (ImGui::InputFloat("##act_speed_num", &editTask_.actionSpeed, 0, 0, "%.1f"))
+                        editTask_.actionSpeed = std::clamp(editTask_.actionSpeed, 0.1f, 10.0f);
+                    ImGui::SameLine(0, 16.0f * s);
+                    ImGui::Checkbox("屏蔽输入", &editTask_.actionBlockInput);
                 }
-                ImGui::PopStyleColor(3);
 
-                if (schedDetailTab_ == 0) {
-                    // Info tab
-                    ImGui::TextColored(ImVec4(0.78f, 0.75f, 0.95f, 1.0f), "%s", sel.name.c_str());
-                    if (!sel.description.empty())
-                        ImGui::TextColored(ImVec4(0.55f, 0.52f, 0.70f, 0.8f), "%s", sel.description.c_str());
-                    ImGui::Spacing();
+                // ── Second row: validation message + buttons ──
+                if (!schedValidationMsg_.empty()) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "%s", schedValidationMsg_.c_str());
+                } else {
+                    ImGui::Spacing(); // force new line
+                }
 
-                    const char* typeNames[] = { "指定日期", "周期执行" };
-                    const char* prioNames[] = { "普通", "高", "紧急" };
-                    const char* unitNames[] = { "秒", "分钟", "小时", "天", "周" };
-                    ImGui::Text("类型: %s  优先级: %s  状态: %s",
-                        typeNames[(int)sel.type], prioNames[sel.priority], Scheduler::StatusName(sel.status));
+                // Buttons right-aligned on this row
+                const float btnW = 90.0f * s;
+                const float btnH = 28.0f * s;
+                const float rightEdge = fullW - 4.0f * s;
+                float btnX = rightEdge - btnW * 2 - 12.0f * s;
+                ImGui::SameLine(btnX);
 
-                    if (sel.type == TaskType::OneShot) {
-                        ImGui::Text("触发时间: %s %s", sel.dateStr.c_str(), sel.timeStr.c_str());
-                    } else {
-                        ImGui::Text("间隔: %d %s  最大次数: %s",
-                            sel.interval, unitNames[(int)sel.unit],
-                            sel.maxRuns == 0 ? "无限" : std::to_string(sel.maxRuns).c_str());
-                    }
-                    ImGui::Text("已执行: %d次  失败: %d次", sel.runCount, sel.failCount);
-                    if (sel.nextRunTime > 0)
-                        ImGui::Text("下次执行: %s", Scheduler::FormatEpoch(sel.nextRunTime).c_str());
-                    if (sel.lastRunTime > 0)
-                        ImGui::Text("上次执行: %s", Scheduler::FormatEpoch(sel.lastRunTime).c_str());
-                    if (sel.createdTime > 0)
-                        ImGui::Text("创建时间: %s", Scheduler::FormatEpoch(sel.createdTime).c_str());
-                    ImGui::Text("动作: %s  路径: %s", sel.actionMode == 0 ? "TRC" : "Lua", sel.actionPath.c_str());
-
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-
-                    // Action buttons
-                    const float abtnW = 72.0f * s;
-                    const float abtnH = 26.0f * s;
-                    if (GlowButton("立即执行", ImVec2(abtnW, abtnH), IM_COL32(40, 140, 200, 255), IM_COL32(60, 180, 240, 255))) {
-                        scheduler_.RunTaskNow(sel.id);
-                        SetStatusOk("任务已触发");
-                    }
-                    ImGui::SameLine();
-                    if (sel.enabled) {
-                        if (GlowButton("禁用", ImVec2(abtnW, abtnH), IM_COL32(180, 140, 40, 255), IM_COL32(200, 160, 60, 255))) {
-                            scheduler_.SetTaskEnabled(sel.id, false);
+                if (schedEditingExisting_) {
+                    if (GlowButton("保存修改", ImVec2(btnW, btnH), IM_COL32(40, 140, 200, 255), IM_COL32(60, 180, 240, 255))) {
+                        schedValidationMsg_.clear();
+                        if (editTask_.name.empty()) {
+                            schedValidationMsg_ = "请输入任务名称";
+                        } else if (editTask_.type == TaskType::OneShot) {
+                            int64_t ep = Scheduler::ParseDateTime(editTask_.dateStr, editTask_.timeStr);
+                            if (ep <= 0) {
+                                schedValidationMsg_ = "日期或时间格式无效";
+                            } else if (ep <= Scheduler::NowEpochSeconds()) {
+                                schedValidationMsg_ = "触发时间必须在当前时间之后";
+                            } else {
+                                scheduler_.UpdateTask(editTask_);
+                                SetStatusOk("任务已更新");
+                                schedEditingExisting_ = false;
+                                editTask_ = ScheduledTask{};
+                            }
+                        } else {
+                            if (editTask_.interval < 1) {
+                                schedValidationMsg_ = "周期间隔必须 >= 1";
+                            } else {
+                                scheduler_.UpdateTask(editTask_);
+                                SetStatusOk("任务已更新");
+                                schedEditingExisting_ = false;
+                                editTask_ = ScheduledTask{};
+                            }
                         }
-                    } else {
-                        if (GlowButton("启用", ImVec2(abtnW, abtnH), IM_COL32(40, 160, 80, 255), IM_COL32(60, 200, 100, 255))) {
-                            scheduler_.SetTaskEnabled(sel.id, true);
-                        }
-                    }
-                    ImGui::SameLine();
-                    if (GlowButton("重置", ImVec2(abtnW, abtnH), IM_COL32(100, 80, 140, 255), IM_COL32(130, 100, 170, 255))) {
-                        scheduler_.ResetTask(sel.id);
-                        SetStatusInfo("任务已重置");
-                    }
-                    ImGui::SameLine();
-                    if (GlowButton("删除", ImVec2(abtnW, abtnH), IM_COL32(200, 50, 50, 255), IM_COL32(220, 80, 60, 255))) {
-                        scheduler_.RemoveTask(sel.id);
-                        schedSelectedTask_ = -1;
-                        SetStatusWarn("任务已删除");
+                        if (!schedValidationMsg_.empty()) SetStatusError(schedValidationMsg_);
                     }
                 } else {
-                    // History tab
-                    if (sel.history.empty()) {
-                        ImGui::TextColored(ImVec4(0.55f, 0.50f, 0.75f, 0.6f), "暂无执行记录");
-                    } else {
-                        ImGui::BeginChild("##hist_scroll", ImVec2(0, 0), false);
-                        for (int hi = (int)sel.history.size() - 1; hi >= 0; --hi) {
-                            const auto& rec = sel.history[hi];
-                            ImGui::PushID(hi);
-                            ImVec4 col = rec.success ? ImVec4(0.4f, 0.9f, 0.5f, 1.0f) : ImVec4(1.0f, 0.4f, 0.4f, 1.0f);
-                            ImGui::TextColored(col, "%s", rec.success ? "成功" : "失败");
-                            ImGui::SameLine();
-                            ImGui::Text("%s", Scheduler::FormatEpoch(rec.startTime).c_str());
-                            ImGui::SameLine();
-                            int64_t dur = rec.endTime - rec.startTime;
-                            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f), "(%s)", Scheduler::FormatDuration(dur).c_str());
-                            if (!rec.success && !rec.errorMsg.empty()) {
-                                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 0.8f), "  错误: %s", rec.errorMsg.c_str());
+                    if (GlowButton("添加任务", ImVec2(btnW, btnH), IM_COL32(40, 160, 80, 255), IM_COL32(30, 200, 120, 255))) {
+                        schedValidationMsg_.clear();
+                        if (editTask_.name.empty()) {
+                            schedValidationMsg_ = "请输入任务名称";
+                        } else if (editTask_.type == TaskType::OneShot) {
+                            int64_t ep = Scheduler::ParseDateTime(editTask_.dateStr, editTask_.timeStr);
+                            if (ep <= 0) {
+                                schedValidationMsg_ = "日期或时间格式无效";
+                            } else if (ep <= Scheduler::NowEpochSeconds()) {
+                                schedValidationMsg_ = "触发时间必须在当前时间之后";
+                            } else {
+                                scheduler_.AddTask(editTask_);
+                                SetStatusOk("任务已添加");
+                                schedValidationMsg_.clear();
+                                editTask_ = ScheduledTask{};
                             }
-                            ImGui::PopID();
+                        } else {
+                            if (editTask_.interval < 1) {
+                                schedValidationMsg_ = "周期间隔必须 >= 1";
+                            } else {
+                                scheduler_.AddTask(editTask_);
+                                SetStatusOk("任务已添加");
+                                schedValidationMsg_.clear();
+                                editTask_ = ScheduledTask{};
+                            }
                         }
-                        ImGui::EndChild();
+                        if (!schedValidationMsg_.empty()) SetStatusError(schedValidationMsg_);
                     }
                 }
-            } else {
-                ImGui::TextColored(ImVec4(0.55f, 0.50f, 0.75f, 0.6f), "请在上方列表中选择一个任务查看详情");
-            }
-        }
-                EndGlassCard();
-            }
-
-            // Track bottom column ratios (sync with top)
-            {
-                const ImGuiTable* tbl = ImGui::GetCurrentTable();
-                if (tbl) {
-                    float totalW = tbl->Columns[0].WidthGiven + tbl->Columns[1].WidthGiven;
-                    if (totalW > 0) schedCol1Ratio_ = tbl->Columns[0].WidthGiven / totalW;
+                ImGui::SameLine(0, 4.0f * s);
+                if (GlowButton("清空表单", ImVec2(btnW, btnH), IM_COL32(100, 80, 140, 255), IM_COL32(130, 100, 170, 255))) {
+                    editTask_ = ScheduledTask{};
+                    schedEditingExisting_ = false;
+                    schedValidationMsg_.clear();
                 }
             }
-            ImGui::EndTable();
         }
+        ImGui::EndChild(); // form area
+        formUsedH += formH + ImGui::GetStyle().ItemSpacing.y;
     }
-    ImGui::EndChild(); // bottom area
+
+    ImGui::Dummy(ImVec2(0, gap));
+    formUsedH += gap + ImGui::GetStyle().ItemSpacing.y;
+
+    // ── BOTTOM: Task list (left) + Detail (right) ──────────────────────────
+    const float bottomH = fullH - formUsedH;
+    const float schedBotCol2Ratio = 1.0f - schedCol1Ratio_;
+
+    if (ImGui::BeginTable("##sched_main_tbl", 2,
+        ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_NoSavedSettings,
+        ImVec2(0, bottomH)))
+    {
+        ImGui::TableSetupColumn("任务列表", ImGuiTableColumnFlags_WidthStretch, schedCol1Ratio_);
+        ImGui::TableSetupColumn("任务详情", ImGuiTableColumnFlags_WidthStretch, schedBotCol2Ratio);
+
+        // ── LEFT: Task list with inline buttons ──
+        ImGui::TableNextColumn();
+        {
+            const float listH = ImGui::GetContentRegionAvail().y;
+            BeginGlassScrollCard("##sched_list_card", "任务列表", ImVec2(-1, listH));
+            {
+                if (tasks.empty()) {
+                    ImGui::TextColored(ImVec4(0.55f, 0.50f, 0.75f, 0.6f), "暂无定时任务，请在上方添加");
+                } else {
+                    for (int ti = 0; ti < taskCount; ++ti) {
+                        const auto& t = tasks[ti];
+                        ImGui::PushID(t.id);
+
+                        const float rowW = ImGui::GetContentRegionAvail().x;
+                        const float rowH = ImGui::GetTextLineHeightWithSpacing() + 2.0f * s;
+                        const float btnAreaW = 170.0f * s;
+                        const float ibtnW = 38.0f * s;
+                        const float ibtnH = 0; // auto height from FramePadding
+                        const float dotR = 4.0f * s;
+                        bool selected = (schedSelectedTask_ == ti);
+
+                        // Status dot color
+                        ImVec4 dotCol;
+                        switch (t.status) {
+                        case TaskStatus::Running:  dotCol = ImVec4(0.2f, 0.9f, 0.4f, 1.0f); break;
+                        case TaskStatus::Waiting:  dotCol = ImVec4(0.3f, 0.7f, 1.0f, 1.0f); break;
+                        case TaskStatus::Done:     dotCol = ImVec4(0.5f, 0.5f, 0.5f, 0.8f); break;
+                        case TaskStatus::Failed:   dotCol = ImVec4(1.0f, 0.3f, 0.3f, 1.0f); break;
+                        case TaskStatus::Disabled: dotCol = ImVec4(0.6f, 0.5f, 0.3f, 0.7f); break;
+                        default:                   dotCol = ImVec4(0.5f, 0.5f, 0.6f, 0.6f); break;
+                        }
+
+                        ImDrawList* dl = ImGui::GetWindowDrawList();
+                        ImVec2 rowPos = ImGui::GetCursorScreenPos();
+
+                        // ── Manual selection highlight (only covers text area, not buttons) ──
+                        const float selectW = rowW - btnAreaW - 8.0f * s;
+                        if (selected) {
+                            dl->AddRectFilled(
+                                rowPos,
+                                ImVec2(rowPos.x + selectW, rowPos.y + rowH),
+                                IM_COL32(80, 60, 160, 100), 4.0f * s);
+                            dl->AddRect(
+                                rowPos,
+                                ImVec2(rowPos.x + selectW, rowPos.y + rowH),
+                                IM_COL32(120, 100, 200, 80), 4.0f * s);
+                        }
+
+                        // ── Invisible button for click-to-select (text area only) ──
+                        if (ImGui::InvisibleButton("##sel", ImVec2(selectW, rowH))) {
+                            schedSelectedTask_ = ti;
+                        }
+                        bool rowHovered = ImGui::IsItemHovered();
+                        if (rowHovered && !selected) {
+                            dl->AddRectFilled(
+                                rowPos,
+                                ImVec2(rowPos.x + selectW, rowPos.y + rowH),
+                                IM_COL32(60, 50, 120, 60), 4.0f * s);
+                        }
+
+                        // ── Draw dot + text on top of the invisible button ──
+                        float dotAlpha = 1.0f;
+                        if (t.status == TaskStatus::Running)
+                            dotAlpha = 0.5f + 0.5f * sinf(animTime_ * 4.0f);
+                        ImU32 dotU32 = ImGui::ColorConvertFloat4ToU32(
+                            ImVec4(dotCol.x, dotCol.y, dotCol.z, dotCol.w * dotAlpha));
+                        dl->AddCircleFilled(
+                            ImVec2(rowPos.x + dotR + 4.0f * s, rowPos.y + rowH * 0.5f),
+                            dotR, dotU32);
+
+                        const char* prioMark = t.priority == 2 ? " !!" : (t.priority == 1 ? " !" : "");
+                        char rowText[256];
+                        snprintf(rowText, sizeof(rowText), "%s%s  [%s]",
+                            t.name.c_str(), prioMark, Scheduler::StatusName(t.status));
+                        float textX = rowPos.x + dotR * 2 + 10.0f * s;
+                        float textY = rowPos.y + (rowH - ImGui::GetTextLineHeight()) * 0.5f;
+                        dl->AddText(ImVec2(textX, textY),
+                            selected ? IM_COL32(230, 220, 255, 255) : IM_COL32(200, 190, 230, 220),
+                            rowText);
+
+                        // Tooltip
+                        if (rowHovered) {
+                            ImGui::BeginTooltip();
+                            ImGui::Text("%s", t.name.c_str());
+                            if (!t.description.empty())
+                                ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.7f, 1.0f), "%s", t.description.c_str());
+                            ImGui::Text("状态: %s  运行: %d次  失败: %d次",
+                                Scheduler::StatusName(t.status), t.runCount, t.failCount);
+                            if (t.nextRunTime > 0)
+                                ImGui::Text("下次: %s", Scheduler::FormatEpoch(t.nextRunTime).c_str());
+                            ImGui::EndTooltip();
+                        }
+
+                        // ── Inline action buttons (right side, vertically centered) ──
+                        const float btnStartX = selectW + 8.0f * s;
+                        // Use SameLine to position horizontally, keep same Y as the row
+                        ImGui::SameLine(btnStartX);
+                        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f * s);
+                        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f * s, 2.0f * s));
+
+                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.40f, 0.60f, 0.8f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.20f, 0.55f, 0.80f, 1.0f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.10f, 0.35f, 0.55f, 1.0f));
+                        if (ImGui::Button("执行##run", ImVec2(ibtnW, ibtnH))) {
+                            scheduler_.RunTaskNow(t.id);
+                            SetStatusOk("任务已触发");
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("立即执行此任务");
+                        ImGui::PopStyleColor(3);
+
+                        ImGui::SameLine(0, 3.0f * s);
+                        if (t.enabled) {
+                            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.50f, 0.40f, 0.15f, 0.8f));
+                            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.65f, 0.55f, 0.20f, 1.0f));
+                            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.40f, 0.30f, 0.10f, 1.0f));
+                            if (ImGui::Button("禁用##tog", ImVec2(ibtnW, ibtnH)))
+                                scheduler_.SetTaskEnabled(t.id, false);
+                        } else {
+                            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.45f, 0.25f, 0.8f));
+                            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.20f, 0.60f, 0.35f, 1.0f));
+                            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.10f, 0.35f, 0.20f, 1.0f));
+                            if (ImGui::Button("启用##tog", ImVec2(ibtnW, ibtnH)))
+                                scheduler_.SetTaskEnabled(t.id, true);
+                        }
+                        ImGui::PopStyleColor(3);
+
+                        ImGui::SameLine(0, 3.0f * s);
+                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.20f, 0.50f, 0.8f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.35f, 0.30f, 0.65f, 1.0f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.20f, 0.15f, 0.40f, 1.0f));
+                        if (ImGui::Button("编辑##edt", ImVec2(ibtnW, ibtnH))) {
+                            editTask_ = t;
+                            schedEditingExisting_ = true;
+                            schedFormExpanded_ = true;
+                            schedSelectedTask_ = ti;
+                            schedValidationMsg_.clear();
+                        }
+                        ImGui::PopStyleColor(3);
+
+                        ImGui::SameLine(0, 3.0f * s);
+                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.15f, 0.15f, 0.8f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.75f, 0.20f, 0.20f, 1.0f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.10f, 0.10f, 1.0f));
+                        if (ImGui::Button("删除##del", ImVec2(ibtnW, ibtnH))) {
+                            schedDeleteConfirmId_ = t.id;
+                        }
+                        ImGui::PopStyleColor(3);
+
+                        ImGui::PopStyleVar(2);
+
+                        // Progress bar for running tasks
+                        if (t.status == TaskStatus::Running) {
+                            const float barH = 3.0f * s;
+                            ImVec2 barPos = ImGui::GetCursorScreenPos();
+                            barPos.y -= 1.0f * s;
+                            float progress = fmodf(animTime_ * 0.5f, 1.0f);
+                            float barW = rowW - 20.0f * s;
+                            float fillW = barW * 0.3f;
+                            float startX = barPos.x + 10.0f * s + progress * (barW - fillW);
+                            dl->AddRectFilled(
+                                ImVec2(barPos.x + 10.0f * s, barPos.y),
+                                ImVec2(barPos.x + 10.0f * s + barW, barPos.y + barH),
+                                IM_COL32(60, 50, 100, 80), 2.0f * s);
+                            dl->AddRectFilled(
+                                ImVec2(startX, barPos.y),
+                                ImVec2(startX + fillW, barPos.y + barH),
+                                IM_COL32(80, 200, 120, 200), 2.0f * s);
+                            ImGui::Dummy(ImVec2(0, barH + 1.0f * s));
+                        }
+
+                        ImGui::PopID();
+                    }
+                }
+            }
+            EndGlassCard();
+        }
+
+        // ── RIGHT: Detail panel ──
+        ImGui::TableNextColumn();
+        {
+            const float detH = ImGui::GetContentRegionAvail().y;
+            BeginGlassScrollCard("##sched_detail", "任务详情", ImVec2(-1, detH));
+            {
+                if (schedSelectedTask_ >= 0 && schedSelectedTask_ < taskCount) {
+                    const auto& sel = tasks[schedSelectedTask_];
+
+                    ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(0.15f, 0.12f, 0.25f, 0.8f));
+                    ImGui::PushStyleColor(ImGuiCol_TabSelected, ImVec4(0.30f, 0.25f, 0.50f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_TabHovered, ImVec4(0.25f, 0.20f, 0.45f, 1.0f));
+                    if (ImGui::BeginTabBar("##detail_tabs")) {
+                        if (ImGui::BeginTabItem("信息")) { schedDetailTab_ = 0; ImGui::EndTabItem(); }
+                        if (ImGui::BeginTabItem("执行历史")) { schedDetailTab_ = 1; ImGui::EndTabItem(); }
+                        ImGui::EndTabBar();
+                    }
+                    ImGui::PopStyleColor(3);
+
+                    if (schedDetailTab_ == 0) {
+                        // Compact item spacing for detail panel
+                        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 2.0f * s));
+
+                        ImGui::Text("任务名称:");
+                        ImGui::SameLine();
+                        ImGui::TextColored(ImVec4(0.78f, 0.75f, 0.95f, 1.0f), "%s", sel.name.c_str());
+                        if (!sel.description.empty()) {
+                            ImGui::Text("描述:");
+                            ImGui::SameLine();
+                            ImGui::TextColored(ImVec4(0.55f, 0.52f, 0.70f, 0.8f), "%s", sel.description.c_str());
+                        }
+
+                        const char* typeNames[] = { "指定日期", "周期执行" };
+                        const char* prioNames[] = { "普通", "高", "紧急" };
+                        const char* unitNames[] = { "秒", "分钟", "小时", "天", "周" };
+
+                        ImGui::Text("状态:");
+                        ImGui::SameLine();
+                        ImVec4 stCol;
+                        switch (sel.status) {
+                        case TaskStatus::Running:  stCol = ImVec4(0.2f, 0.9f, 0.4f, 1.0f); break;
+                        case TaskStatus::Waiting:  stCol = ImVec4(0.3f, 0.7f, 1.0f, 1.0f); break;
+                        case TaskStatus::Done:     stCol = ImVec4(0.5f, 0.5f, 0.5f, 0.8f); break;
+                        case TaskStatus::Failed:   stCol = ImVec4(1.0f, 0.3f, 0.3f, 1.0f); break;
+                        case TaskStatus::Disabled: stCol = ImVec4(0.6f, 0.5f, 0.3f, 0.7f); break;
+                        default:                   stCol = ImVec4(0.5f, 0.5f, 0.6f, 0.6f); break;
+                        }
+                        ImGui::TextColored(stCol, "%s", Scheduler::StatusName(sel.status));
+                        ImGui::SameLine(0, 16.0f * s);
+                        ImGui::Text("类型: %s  优先级: %s", typeNames[(int)sel.type], prioNames[sel.priority]);
+
+                        if (sel.type == TaskType::OneShot) {
+                            ImGui::Text("触发时间: %s %s", sel.dateStr.c_str(), sel.timeStr.c_str());
+                        } else {
+                            ImGui::Text("间隔: %d %s  最大次数: %s",
+                                sel.interval, unitNames[(int)sel.unit],
+                                sel.maxRuns == 0 ? "无限" : std::to_string(sel.maxRuns).c_str());
+                        }
+
+                        ImGui::Separator();
+
+                        ImGui::Text("已执行: %d次", sel.runCount);
+                        ImGui::SameLine(0, 12.0f * s);
+                        if (sel.failCount > 0)
+                            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "失败: %d次", sel.failCount);
+                        else
+                            ImGui::Text("失败: 0次");
+                        if (sel.nextRunTime > 0) {
+                            ImGui::SameLine(0, 12.0f * s);
+                            ImGui::Text("下次: %s", Scheduler::FormatEpoch(sel.nextRunTime).c_str());
+                        }
+                        if (sel.lastRunTime > 0) {
+                            ImGui::Text("上次执行: %s", Scheduler::FormatEpoch(sel.lastRunTime).c_str());
+                            ImGui::SameLine(0, 12.0f * s);
+                        }
+                        if (sel.createdTime > 0) {
+                            ImGui::Text("创建时间: %s", Scheduler::FormatEpoch(sel.createdTime).c_str());
+                        }
+
+                        ImGui::Text("动作: %s  路径: %s",
+                            sel.actionMode == 0 ? "TRC 回放" : "Lua 脚本", sel.actionPath.c_str());
+                        if (sel.actionMode == 0)
+                            ImGui::Text("速度: %.1fx  屏蔽输入: %s",
+                                sel.actionSpeed, sel.actionBlockInput ? "是" : "否");
+                        if (sel.windowStartHour != 0 || sel.windowEndHour != 0) {
+                            ImGui::SameLine(0, 12.0f * s);
+                            ImGui::Text("时间窗: %d:00~%d:00", sel.windowStartHour, sel.windowEndHour);
+                        }
+                        if (sel.retryCount > 0) {
+                            ImGui::SameLine(0, 12.0f * s);
+                            ImGui::Text("重试: %d次 间隔%d秒", sel.retryCount, sel.retryDelaySec);
+                        }
+
+                        ImGui::PopStyleVar(); // ItemSpacing
+
+                        ImGui::Spacing();
+
+                        const float abtnW = 72.0f * s;
+                        const float abtnH = 26.0f * s;
+                        if (GlowButton("编辑##det_edit", ImVec2(abtnW, abtnH), IM_COL32(60, 50, 140, 255), IM_COL32(90, 70, 180, 255))) {
+                            editTask_ = sel;
+                            schedEditingExisting_ = true;
+                            schedFormExpanded_ = true;
+                            schedValidationMsg_.clear();
+                        }
+                        ImGui::SameLine();
+                        if (GlowButton("重置##det_reset", ImVec2(abtnW, abtnH), IM_COL32(100, 80, 140, 255), IM_COL32(130, 100, 170, 255))) {
+                            scheduler_.ResetTask(sel.id);
+                            SetStatusInfo("任务已重置");
+                        }
+                        ImGui::SameLine();
+                        if (GlowButton("立即执行##det_run", ImVec2(abtnW, abtnH), IM_COL32(40, 140, 200, 255), IM_COL32(60, 180, 240, 255))) {
+                            scheduler_.RunTaskNow(sel.id);
+                            SetStatusOk("任务已触发");
+                        }
+                    } else {
+                        ImGui::Spacing();
+                        if (sel.history.empty()) {
+                            ImGui::TextColored(ImVec4(0.55f, 0.50f, 0.75f, 0.6f), "暂无执行记录");
+                        } else {
+                            for (int hi = (int)sel.history.size() - 1; hi >= 0; --hi) {
+                                const auto& rec = sel.history[hi];
+                                ImGui::PushID(hi);
+                                ImVec4 col = rec.success ? ImVec4(0.4f, 0.9f, 0.5f, 1.0f) : ImVec4(1.0f, 0.4f, 0.4f, 1.0f);
+                                ImGui::TextColored(col, "%s", rec.success ? "[OK]" : "[FAIL]");
+                                ImGui::SameLine();
+                                ImGui::Text("%s", Scheduler::FormatEpoch(rec.startTime).c_str());
+                                ImGui::SameLine();
+                                int64_t dur = rec.endTime - rec.startTime;
+                                ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f), "(%s)",
+                                    Scheduler::FormatDuration(dur).c_str());
+                                if (!rec.success && !rec.errorMsg.empty())
+                                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 0.8f), "  错误: %s", rec.errorMsg.c_str());
+                                ImGui::PopID();
+                            }
+                        }
+                    }
+                } else {
+                    ImGui::Spacing();
+                    ImGui::TextColored(ImVec4(0.55f, 0.50f, 0.75f, 0.6f), "请在左侧列表中选择一个任务查看详情");
+                }
+            }
+            EndGlassCard();
+        }
+
+        // Track column ratios
+        {
+            const ImGuiTable* tbl = ImGui::GetCurrentTable();
+            if (tbl) {
+                float totalW = tbl->Columns[0].WidthGiven + tbl->Columns[1].WidthGiven;
+                if (totalW > 0) schedCol1Ratio_ = tbl->Columns[0].WidthGiven / totalW;
+            }
+        }
+        ImGui::EndTable();
+    }
 
     ImGui::PopStyleColor(); // FrameBg
+
+    // ── Delete confirmation modal ──
+    if (schedDeleteConfirmId_ >= 0) {
+        ImGui::OpenPopup("删除任务确认");
+    }
+    {
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.12f, 0.10f, 0.25f, 0.95f));
+        bool modalOpen = true;
+        if (ImGui::BeginPopupModal("删除任务确认", &modalOpen, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+            ImGui::Spacing();
+            ImGui::TextUnformatted("确定要删除此任务吗？此操作不可撤销。");
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            if (GlowButton("确定删除", ImVec2(120.0f * s, 32.0f * s), IM_COL32(200, 50, 50, 255), IM_COL32(220, 80, 60, 255))) {
+                if (schedDeleteConfirmId_ >= 0) {
+                    // Find index of the task being deleted
+                    for (int di = 0; di < taskCount; ++di) {
+                        if (tasks[di].id == schedDeleteConfirmId_) {
+                            if (schedSelectedTask_ == di) schedSelectedTask_ = -1;
+                            else if (schedSelectedTask_ > di) schedSelectedTask_--;
+                            break;
+                        }
+                    }
+                    scheduler_.RemoveTask(schedDeleteConfirmId_);
+                    SetStatusWarn("任务已删除");
+                    schedDeleteConfirmId_ = -1;
+                }
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("取消", ImVec2(100.0f * s, 32.0f * s))) {
+                schedDeleteConfirmId_ = -1;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        } else {
+            // Modal was closed via X button
+            schedDeleteConfirmId_ = -1;
+        }
+        ImGui::PopStyleColor();
+    }
 }
+
+
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // LOG MODE
