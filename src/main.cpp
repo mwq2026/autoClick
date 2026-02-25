@@ -174,12 +174,19 @@ static bool SetupChineseFonts(ImGuiIO& io, float baseFontSizePx) {
     cfg.OversampleH = 2;
     cfg.OversampleV = 2;
     cfg.PixelSnapH = true;
+    
+    // msyh.ttc contains "Microsoft YaHei" at index 0, and "Microsoft YaHei UI" at index 1.
+    if (chosen.find(L"msyh.ttc") != std::wstring::npos || chosen.find(L"msyhl.ttc") != std::wstring::npos) {
+        cfg.FontNo = 1;
+    }
+    // stb_truetype tends to render fonts a bit thin and washed out. This multiplier helps contrast.
+    cfg.RasterizerMultiply = 1.2f;
 
     const ImWchar* ranges = io.Fonts->GetGlyphRangesChineseFull();
     const std::string pathUtf8 = wideToUtf8(chosen);
     io.FontDefault = io.Fonts->AddFontFromFileTTF(
         pathUtf8.c_str(),
-        baseFontSizePx,
+        std::floor(baseFontSizePx),
         &cfg,
         ranges);
     return io.FontDefault != nullptr;

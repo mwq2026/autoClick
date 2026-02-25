@@ -45,7 +45,7 @@ if "%GEN%"=="" (
 if errorlevel 1 (
   if "%~3"=="" (
     set "GEN=Visual Studio 17 2022"
-    "%CMAKE_EXE%" -S "%ROOT%" -B "%BUILD_DIR%" -G "%GEN%" -A x64
+    "%CMAKE_EXE%" -S "%ROOT%" -B "%BUILD_DIR%" -G "!GEN!" -A x64
   )
 )
 if errorlevel 1 (

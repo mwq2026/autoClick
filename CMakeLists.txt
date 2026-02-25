@@ -102,6 +102,7 @@ if(MSVC)
 endif()
 
 set_target_properties(AutoClickerPro PROPERTIES WIN32_EXECUTABLE TRUE)
+set_target_properties(AutoClickerPro PROPERTIES VS_DPI_AWARE "PerMonitor")
 set_target_properties(AutoClickerPro PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
 
 add_executable(AutoClickerProTests
