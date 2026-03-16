@@ -54,11 +54,6 @@ std::string Logger::GetFilePath() const {
 }
 
 void Logger::Log(LogLevel level, const char* source, const char* fmt, ...) {
-    {
-        std::scoped_lock lock(mutex_);
-        if (level < level_) return;
-    }
-
     char buf[2048];
     va_list args;
     va_start(args, fmt);
@@ -74,6 +69,7 @@ void Logger::Log(LogLevel level, const char* source, const char* fmt, ...) {
     entry.message = buf;
 
     std::scoped_lock lock(mutex_);
+    if (level < level_) return;
     entries_.push_back(entry);
     if (maxEntries_ > 0 && (int)entries_.size() > maxEntries_) {
         entries_.erase(entries_.begin());
@@ -82,11 +78,6 @@ void Logger::Log(LogLevel level, const char* source, const char* fmt, ...) {
 }
 
 void Logger::LogWithStack(LogLevel level, const char* source, const char* message, const char* stack) {
-    {
-        std::scoped_lock lock(mutex_);
-        if (level < level_) return;
-    }
-
     LogEntry entry;
     auto now = std::chrono::system_clock::now();
     entry.timestampMs = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
@@ -97,6 +88,7 @@ void Logger::LogWithStack(LogLevel level, const char* source, const char* messag
     entry.stackTrace = stack ? stack : "";
 
     std::scoped_lock lock(mutex_);
+    if (level < level_) return;
     entries_.push_back(entry);
     if (maxEntries_ > 0 && (int)entries_.size() > maxEntries_) {
         entries_.erase(entries_.begin());
