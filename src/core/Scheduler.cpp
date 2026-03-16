@@ -333,7 +333,7 @@ static std::string UnescapePipe(const std::string& s) {
             if (next == '\\') { out += '\\'; ++i; }
             else if (next == 'p') { out += '|'; ++i; }
             else if (next == 'n') { out += '\n'; ++i; }
-            else out += s[i];
+            else { out += '\\'; out += next; ++i; }
         } else {
             out += s[i];
         }

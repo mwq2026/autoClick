@@ -1547,6 +1547,9 @@ int LuaEngine::L_SetTargetWindow(lua_State* L) {
     if (!self) return 0;
     const HWND hwnd = LuaToHwnd(L, 1);
     self->targetWindow_ = static_cast<void*>(hwnd);
+    self->hasLastMouse_ = false;
+    self->lastMouseX_ = 0;
+    self->lastMouseY_ = 0;
     return 0;
 }
 
