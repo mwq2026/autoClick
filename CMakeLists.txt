@@ -111,6 +111,7 @@ add_executable(AutoClickerProTests
   src/core/Logger.cpp
   src/core/Recorder.cpp
   src/core/Replayer.cpp
+  src/core/Scheduler.cpp
   src/core/TrcIO.cpp
 )
 target_include_directories(AutoClickerProTests PRIVATE src)

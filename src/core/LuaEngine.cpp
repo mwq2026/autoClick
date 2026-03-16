@@ -1545,12 +1545,11 @@ int LuaEngine::L_Text(lua_State* L) {
 int LuaEngine::L_SetTargetWindow(lua_State* L) {
     auto* self = Self(L);
     if (!self) return 0;
-    const int x = static_cast<int>(luaL_checkinteger(L, 1));
-    const int y = static_cast<int>(luaL_checkinteger(L, 2));
-    self->hasLastMouse_ = true;
-    self->lastMouseX_ = x;
-    self->lastMouseY_ = y;
-    self->targetWindow_ = nullptr;
+    const HWND hwnd = LuaToHwnd(L, 1);
+    self->targetWindow_ = static_cast<void*>(hwnd);
+    self->hasLastMouse_ = false;
+    self->lastMouseX_ = 0;
+    self->lastMouseY_ = 0;
     return 0;
 }
 
@@ -1943,6 +1942,7 @@ int LuaEngine::L_Sleep(lua_State* L) {
     auto* self = Self(L);
     if (!self) return 0;
     int64_t ms = luaL_checkinteger(L, 1);
-    self->WaitMicrosCancelable(ms * 1000);
+    self->WaitMicrosCancelable(std::max<int64_t>(0, ms) * 1000);
+    if (self->cancel_.load(std::memory_order_acquire)) luaL_error(L, "cancelled");
     return 0;
 }

@@ -137,7 +137,7 @@ void Scroll(int delta) {
 
     int remaining = delta;
     int step = delta;
-    while (std::abs(step) > 0) {
+    while (remaining != 0) {
         step = static_cast<int>(std::llround(static_cast<double>(step) * 0.6));
         if (step == 0) step = (remaining > 0) ? 120 : -120;
         if ((remaining > 0 && step > remaining) || (remaining < 0 && step < remaining)) step = remaining;

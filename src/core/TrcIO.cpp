@@ -36,6 +36,7 @@ bool ReadTrcFile(const std::wstring& filename, TrcReadResult* out) {
     if (std::memcmp(hdr.signature, kSignature, sizeof(hdr.signature)) != 0) return false;
     if (hdr.version != kVersion) return false;
     if (hdr.totalEvents < 0) return false;
+    if (hdr.totalEvents > 50'000'000) return false;  // sanity limit: ~1GB
 
     std::vector<RawEvent> events;
     events.resize(static_cast<size_t>(hdr.totalEvents));
