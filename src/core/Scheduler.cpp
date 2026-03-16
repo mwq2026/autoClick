@@ -312,21 +312,50 @@ const char* Scheduler::StatusName(TaskStatus s) {
     }
 }
 
+static std::string EscapePipe(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        if (c == '\\') out += "\\\\";
+        else if (c == '|') out += "\\p";
+        else if (c == '\n') out += "\\n";
+        else out += c;
+    }
+    return out;
+}
+
+static std::string UnescapePipe(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '\\' && i + 1 < s.size()) {
+            char next = s[i + 1];
+            if (next == '\\') { out += '\\'; ++i; }
+            else if (next == 'p') { out += '|'; ++i; }
+            else if (next == 'n') { out += '\n'; ++i; }
+            else { out += '\\'; out += next; ++i; } // preserve unknown sequences
+        } else {
+            out += s[i];
+        }
+    }
+    return out;
+}
+
 std::string Scheduler::Serialize() const {
     std::scoped_lock lock(mutex_);
     std::ostringstream ss;
     for (const auto& t : tasks_) {
-        ss << t.id << "|" << t.name << "|" << (int)t.type << "|"
+        ss << t.id << "|" << EscapePipe(t.name) << "|" << (int)t.type << "|"
            << t.dateStr << "|" << t.timeStr << "|"
            << t.interval << "|" << (int)t.unit << "|" << t.maxRuns << "|"
-           << t.actionMode << "|" << t.actionPath << "|"
+           << t.actionMode << "|" << EscapePipe(t.actionPath) << "|"
            << (t.enabled ? 1 : 0) << "|" << t.runCount << "|" << t.triggerTime << "|"
            << t.priority << "|" << t.startDelaySec << "|"
            << t.windowStartHour << "|" << t.windowEndHour << "|"
            << t.retryCount << "|" << t.retryDelaySec << "|"
            << t.actionSpeed << "|" << (t.actionBlockInput ? 1 : 0) << "|"
            << t.failCount << "|" << t.createdTime << "|"
-           << t.description << "\n";
+           << EscapePipe(t.description) << "\n";
     }
     return ss.str();
 }
@@ -346,7 +375,7 @@ void Scheduler::Deserialize(const std::string& data) {
         while (std::getline(ls, field, '|')) {
             switch (fi) {
             case 0: t.id = std::atoi(field.c_str()); break;
-            case 1: t.name = field; break;
+            case 1: t.name = UnescapePipe(field); break;
             case 2: t.type = (TaskType)std::atoi(field.c_str()); break;
             case 3: t.dateStr = field; break;
             case 4: t.timeStr = field; break;
@@ -354,7 +383,7 @@ void Scheduler::Deserialize(const std::string& data) {
             case 6: t.unit = (PeriodUnit)std::atoi(field.c_str()); break;
             case 7: t.maxRuns = std::atoi(field.c_str()); break;
             case 8: t.actionMode = std::atoi(field.c_str()); break;
-            case 9: t.actionPath = field; break;
+            case 9: t.actionPath = UnescapePipe(field); break;
             case 10: t.enabled = (field == "1"); break;
             case 11: t.runCount = std::atoi(field.c_str()); break;
             case 12: t.triggerTime = std::atoll(field.c_str()); break;
@@ -368,7 +397,7 @@ void Scheduler::Deserialize(const std::string& data) {
             case 20: t.actionBlockInput = (field == "1"); break;
             case 21: t.failCount = std::atoi(field.c_str()); break;
             case 22: t.createdTime = std::atoll(field.c_str()); break;
-            case 23: t.description = field; break;
+            case 23: t.description = UnescapePipe(field); break;
             }
             fi++;
         }
