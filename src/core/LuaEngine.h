@@ -189,5 +189,5 @@ private:
     bool hasLastMouse_{ false };
     int lastMouseX_{ 0 };
     int lastMouseY_{ 0 };
-    void* targetWindow_{ nullptr };
+    std::atomic<void*> targetWindow_{ nullptr };
 };

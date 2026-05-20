@@ -41,8 +41,14 @@ void Recorder::Clear() {
     ringRead_.store(0, std::memory_order_release);
 }
 
-const std::vector<trc::RawEvent>& Recorder::Events() const {
+std::vector<trc::RawEvent> Recorder::EventsCopy() const {
+    std::scoped_lock lock(eventsMutex_);
     return events_;
+}
+
+size_t Recorder::EventCount() const {
+    std::scoped_lock lock(eventsMutex_);
+    return events_.size();
 }
 
 int64_t Recorder::TotalDurationMicros() const {

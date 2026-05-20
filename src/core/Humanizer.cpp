@@ -6,59 +6,12 @@
 #include <windows.h>
 
 #include "core/HighPrecisionWait.h"
-
-static LONG NormalizeAbsoluteX(int x) {
-    const int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    const int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    if (vw <= 1) return 0;
-    const double t = (static_cast<double>(x - vx) / static_cast<double>(vw - 1));
-    return static_cast<LONG>(std::clamp(t, 0.0, 1.0) * 65535.0);
-}
-
-static LONG NormalizeAbsoluteY(int y) {
-    const int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
-    const int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-    if (vh <= 1) return 0;
-    const double t = (static_cast<double>(y - vy) / static_cast<double>(vh - 1));
-    return static_cast<LONG>(std::clamp(t, 0.0, 1.0) * 65535.0);
-}
-
-static void SendMouseMoveAbs(int x, int y) {
-    INPUT in{};
-    in.type = INPUT_MOUSE;
-    in.mi.dx = NormalizeAbsoluteX(x);
-    in.mi.dy = NormalizeAbsoluteY(y);
-    in.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-    SendInput(1, &in, sizeof(in));
-}
-
-static void MoveCursorBestEffort(int x, int y) {
-    if (SetCursorPos(x, y) != FALSE) return;
-    SendMouseMoveAbs(x, y);
-}
-
-static DWORD MouseDownFlag(int button) {
-    switch (button) {
-    case 1: return MOUSEEVENTF_LEFTDOWN;
-    case 2: return MOUSEEVENTF_RIGHTDOWN;
-    case 3: return MOUSEEVENTF_MIDDLEDOWN;
-    default: return 0;
-    }
-}
-
-static DWORD MouseUpFlag(int button) {
-    switch (button) {
-    case 1: return MOUSEEVENTF_LEFTUP;
-    case 2: return MOUSEEVENTF_RIGHTUP;
-    case 3: return MOUSEEVENTF_MIDDLEUP;
-    default: return 0;
-    }
-}
+#include "core/InputUtils.h"
 
 static void SendMouseButton(int button, bool down) {
     INPUT in{};
     in.type = INPUT_MOUSE;
-    in.mi.dwFlags = down ? MouseDownFlag(button) : MouseUpFlag(button);
+    in.mi.dwFlags = down ? input::MouseDownFlag(button) : input::MouseUpFlag(button);
     if (in.mi.dwFlags == 0) return;
     SendInput(1, &in, sizeof(in));
 }
@@ -113,7 +66,7 @@ void MoveTo(int x, int y, double speed) {
         const double t = EaseInOut(static_cast<double>(i) / static_cast<double>(steps));
         const POINT p = Bezier(start, c1, c2, end, t);
         if (p.x != last.x || p.y != last.y) {
-            MoveCursorBestEffort(p.x, p.y);
+            input::MoveCursorBestEffort(p.x, p.y);
             last = p;
         }
         timing::HighPrecisionWaitMicros(stepWait);

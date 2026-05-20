@@ -4,93 +4,19 @@
 #include <windows.h>
 
 #include "core/HighPrecisionWait.h"
+#include "core/InputUtils.h"
 #include "core/Logger.h"
 
-static LONG NormalizeAbsoluteX(int x) {
-    const int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    const int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    if (vw <= 1) return 0;
-    const double t = (static_cast<double>(x - vx) / static_cast<double>(vw - 1));
-    return static_cast<LONG>(std::clamp(t, 0.0, 1.0) * 65535.0);
-}
-
-static LONG NormalizeAbsoluteY(int y) {
-    const int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
-    const int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-    if (vh <= 1) return 0;
-    const double t = (static_cast<double>(y - vy) / static_cast<double>(vh - 1));
-    return static_cast<LONG>(std::clamp(t, 0.0, 1.0) * 65535.0);
-}
-
-static void SendMouseMoveAbs(int x, int y) {
-    INPUT in{};
-    in.type = INPUT_MOUSE;
-    in.mi.dx = NormalizeAbsoluteX(x);
-    in.mi.dy = NormalizeAbsoluteY(y);
-    in.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-    SendInput(1, &in, sizeof(in));
-}
-
-static void MoveCursorBestEffort(int x, int y) {
-    if (SetCursorPos(x, y) != FALSE) return;
-    SendMouseMoveAbs(x, y);
-}
-
-static bool WindowContainsPoint(HWND hwnd, const POINT& pt) {
-    RECT rc{};
-    if (!GetWindowRect(hwnd, &rc)) return false;
-    return PtInRect(&rc, pt) != FALSE;
-}
-
-static HWND RootWindowAtSkipSelf(const POINT& pt) {
-    HWND h = WindowFromPoint(pt);
-    const DWORD selfPid = GetCurrentProcessId();
-    for (int iter = 0; iter < 64 && h; ++iter) {
-        HWND root = GetAncestor(h, GA_ROOT);
-        if (!root) return nullptr;
-        if (!WindowContainsPoint(root, pt)) {
-            h = GetWindow(root, GW_HWNDNEXT);
-            continue;
-        }
-        DWORD pid = 0;
-        GetWindowThreadProcessId(root, &pid);
-        if (pid != 0 && pid != selfPid) return root;
-        h = GetWindow(root, GW_HWNDNEXT);
-    }
-    return nullptr;
-}
-
-static void FocusWindowAt(int x, int y) {
-    POINT pt{ x, y };
-    HWND hwnd = RootWindowAtSkipSelf(pt);
-    if (!hwnd) return;
-
-    HWND fg = GetForegroundWindow();
-    const DWORD curTid = GetCurrentThreadId();
-    const DWORD fgTid = fg ? GetWindowThreadProcessId(fg, nullptr) : 0;
-    const DWORD targetTid = GetWindowThreadProcessId(hwnd, nullptr);
-
-    bool attachedFg = false;
-    bool attachedTarget = false;
-
-    if (fgTid != curTid && fgTid != 0) {
-        attachedFg = (AttachThreadInput(curTid, fgTid, TRUE) != 0);
-    }
-    if (targetTid != curTid && targetTid != 0 && targetTid != fgTid) {
-        attachedTarget = (AttachThreadInput(curTid, targetTid, TRUE) != 0);
-    }
-
-    ShowWindow(hwnd, SW_SHOW);
-    if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
-
-    BringWindowToTop(hwnd);
-    SetForegroundWindow(hwnd);
-    SetActiveWindow(hwnd);
-
-    if (attachedTarget) AttachThreadInput(curTid, targetTid, FALSE);
-    if (attachedFg) AttachThreadInput(curTid, fgTid, FALSE);
-    Sleep(10);
-}
+// RAII guard for BlockInput — ensures input is always unblocked on scope exit.
+struct BlockInputGuard {
+    explicit BlockInputGuard(bool doBlock) : blocked_(doBlock && BlockInput(TRUE) == TRUE) {}
+    ~BlockInputGuard() { if (blocked_) BlockInput(FALSE); }
+    bool IsBlocked() const { return blocked_; }
+    BlockInputGuard(const BlockInputGuard&) = delete;
+    BlockInputGuard& operator=(const BlockInputGuard&) = delete;
+private:
+    bool blocked_;
+};
 
 static DWORD MouseDownFlag(int button) {
     switch (button) {
@@ -200,8 +126,8 @@ float Replayer::Progress01() const {
 }
 
 void Replayer::ThreadMain(std::vector<trc::RawEvent> events, bool blockInput) {
-    const BOOL canBlock = blockInput ? BlockInput(TRUE) : TRUE;
-    const bool blocked = (blockInput && canBlock == TRUE);
+    BlockInputGuard inputGuard(blockInput);
+    const bool blocked = inputGuard.IsBlocked();
     if (blockInput) {
         blockInputState_.store(blocked ? 1 : -1, std::memory_order_release);
         if (blocked) LOG_INFO("Replayer::ThreadMain", "BlockInput enabled");
@@ -227,7 +153,7 @@ void Replayer::ThreadMain(std::vector<trc::RawEvent> events, bool blockInput) {
         current_.store(i + 1, std::memory_order_release);
     }
 
-    if (blocked) BlockInput(FALSE);
+    // inputGuard destructor automatically calls BlockInput(FALSE) if blocked.
     if (blocked) blockInputState_.store(0, std::memory_order_release);
     running_.store(false, std::memory_order_release);
     LOG_INFO("Replayer::ThreadMain", "Replay finished, played %u/%zu events",
@@ -238,12 +164,12 @@ void Replayer::InjectEvent(const trc::RawEvent& e) {
     const auto type = static_cast<trc::EventType>(e.type);
 
     if (type == trc::EventType::MouseMove) {
-        MoveCursorBestEffort(e.x, e.y);
+        input::MoveCursorBestEffort(e.x, e.y);
         return;
     }
 
     if (type == trc::EventType::MouseDown || type == trc::EventType::MouseUp) {
-        MoveCursorBestEffort(e.x, e.y);
+        input::MoveCursorBestEffort(e.x, e.y);
         const int button = e.data;
         INPUT in{};
         in.type = INPUT_MOUSE;
@@ -255,8 +181,8 @@ void Replayer::InjectEvent(const trc::RawEvent& e) {
     }
 
     if (type == trc::EventType::Wheel) {
-        MoveCursorBestEffort(e.x, e.y);
-        FocusWindowAt(e.x, e.y);
+        input::MoveCursorBestEffort(e.x, e.y);
+        input::FocusWindowAt(e.x, e.y);
         bool horizontal = (e.data & (1 << 30)) != 0;
         if ((static_cast<uint32_t>(e.data) & 0xFFFF0000u) == 0xFFFF0000u) horizontal = false;
         const int16_t delta16 = static_cast<int16_t>(e.data & 0xFFFF);
@@ -271,7 +197,7 @@ void Replayer::InjectEvent(const trc::RawEvent& e) {
 
     if (type == trc::EventType::KeyDown || type == trc::EventType::KeyUp) {
         POINT pt{};
-        if (GetCursorPos(&pt)) FocusWindowAt(pt.x, pt.y);
+        if (GetCursorPos(&pt)) input::FocusWindowAt(pt.x, pt.y);
         INPUT in{};
         in.type = INPUT_KEYBOARD;
         const WORD vk = static_cast<WORD>(e.x);

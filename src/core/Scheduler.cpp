@@ -253,6 +253,8 @@ void Scheduler::ThreadMain() {
                     break;
                 }
             }
+            // Note: if the task was removed while the callback was running,
+            // the history update is silently skipped — this is intentional.
         }
     }
 }
@@ -366,6 +368,17 @@ void Scheduler::Deserialize(const std::string& data) {
     std::istringstream ss(data);
     std::string line;
     int maxId = 0;
+
+    auto safeAtoi = [](const std::string& s, int def = 0) -> int {
+        try { return std::stoi(s); } catch (...) { return def; }
+    };
+    auto safeAtoll = [](const std::string& s, int64_t def = 0) -> int64_t {
+        try { return std::stoll(s); } catch (...) { return def; }
+    };
+    auto safeAtof = [](const std::string& s, float def = 0.0f) -> float {
+        try { return std::stof(s); } catch (...) { return def; }
+    };
+
     while (std::getline(ss, line)) {
         if (line.empty()) continue;
         ScheduledTask t;
@@ -374,29 +387,29 @@ void Scheduler::Deserialize(const std::string& data) {
         int fi = 0;
         while (std::getline(ls, field, '|')) {
             switch (fi) {
-            case 0: t.id = std::atoi(field.c_str()); break;
-            case 1: t.name = UnescapePipe(field); break;
-            case 2: t.type = (TaskType)std::atoi(field.c_str()); break;
-            case 3: t.dateStr = field; break;
-            case 4: t.timeStr = field; break;
-            case 5: t.interval = std::atoi(field.c_str()); break;
-            case 6: t.unit = (PeriodUnit)std::atoi(field.c_str()); break;
-            case 7: t.maxRuns = std::atoi(field.c_str()); break;
-            case 8: t.actionMode = std::atoi(field.c_str()); break;
-            case 9: t.actionPath = UnescapePipe(field); break;
+            case 0:  t.id = safeAtoi(field); break;
+            case 1:  t.name = UnescapePipe(field); break;
+            case 2:  t.type = (TaskType)safeAtoi(field); break;
+            case 3:  t.dateStr = field; break;
+            case 4:  t.timeStr = field; break;
+            case 5:  t.interval = safeAtoi(field, 60); break;
+            case 6:  t.unit = (PeriodUnit)safeAtoi(field); break;
+            case 7:  t.maxRuns = safeAtoi(field); break;
+            case 8:  t.actionMode = safeAtoi(field); break;
+            case 9:  t.actionPath = UnescapePipe(field); break;
             case 10: t.enabled = (field == "1"); break;
-            case 11: t.runCount = std::atoi(field.c_str()); break;
-            case 12: t.triggerTime = std::atoll(field.c_str()); break;
-            case 13: t.priority = std::atoi(field.c_str()); break;
-            case 14: t.startDelaySec = std::atoi(field.c_str()); break;
-            case 15: t.windowStartHour = std::atoi(field.c_str()); break;
-            case 16: t.windowEndHour = std::atoi(field.c_str()); break;
-            case 17: t.retryCount = std::atoi(field.c_str()); break;
-            case 18: t.retryDelaySec = std::atoi(field.c_str()); break;
-            case 19: t.actionSpeed = (float)std::atof(field.c_str()); break;
+            case 11: t.runCount = safeAtoi(field); break;
+            case 12: t.triggerTime = safeAtoll(field); break;
+            case 13: t.priority = safeAtoi(field); break;
+            case 14: t.startDelaySec = safeAtoi(field); break;
+            case 15: t.windowStartHour = safeAtoi(field); break;
+            case 16: t.windowEndHour = safeAtoi(field); break;
+            case 17: t.retryCount = safeAtoi(field); break;
+            case 18: t.retryDelaySec = safeAtoi(field, 5); break;
+            case 19: t.actionSpeed = safeAtof(field, 1.0f); break;
             case 20: t.actionBlockInput = (field == "1"); break;
-            case 21: t.failCount = std::atoi(field.c_str()); break;
-            case 22: t.createdTime = std::atoll(field.c_str()); break;
+            case 21: t.failCount = safeAtoi(field); break;
+            case 22: t.createdTime = safeAtoll(field); break;
             case 23: t.description = UnescapePipe(field); break;
             }
             fi++;

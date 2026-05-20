@@ -19,64 +19,11 @@ extern "C" {
 
 #include "core/Humanizer.h"
 #include "core/HighPrecisionWait.h"
+#include "core/InputUtils.h"
 #include "core/Logger.h"
 #include "core/Recorder.h"
 #include "core/Replayer.h"
 #include "core/WinAutomation.h"
-
-static LONG NormalizeAbsoluteX(int x) {
-    const int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
-    const int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-    if (vw <= 1) return 0;
-    const double t = (static_cast<double>(x - vx) / static_cast<double>(vw - 1));
-    return static_cast<LONG>(std::clamp(t, 0.0, 1.0) * 65535.0);
-}
-
-static LONG NormalizeAbsoluteY(int y) {
-    const int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
-    const int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-    if (vh <= 1) return 0;
-    const double t = (static_cast<double>(y - vy) / static_cast<double>(vh - 1));
-    return static_cast<LONG>(std::clamp(t, 0.0, 1.0) * 65535.0);
-}
-
-static void SendMouseMoveAbs(int x, int y) {
-    INPUT in{};
-    in.type = INPUT_MOUSE;
-    in.mi.dx = NormalizeAbsoluteX(x);
-    in.mi.dy = NormalizeAbsoluteY(y);
-    in.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-    SendInput(1, &in, sizeof(in));
-}
-
-static void MoveCursorBestEffort(int x, int y) {
-    if (SetCursorPos(x, y) != FALSE) return;
-    SendMouseMoveAbs(x, y);
-}
-
-static bool WindowContainsPoint(HWND hwnd, const POINT& pt) {
-    RECT rc{};
-    if (!GetWindowRect(hwnd, &rc)) return false;
-    return PtInRect(&rc, pt) != FALSE;
-}
-
-static HWND RootWindowAtSkipSelf(const POINT& pt) {
-    HWND h = WindowFromPoint(pt);
-    const DWORD selfPid = GetCurrentProcessId();
-    for (int iter = 0; iter < 64 && h; ++iter) {
-        HWND root = GetAncestor(h, GA_ROOT);
-        if (!root) return nullptr;
-        if (!WindowContainsPoint(root, pt)) {
-            h = GetWindow(root, GW_HWNDNEXT);
-            continue;
-        }
-        DWORD pid = 0;
-        GetWindowThreadProcessId(root, &pid);
-        if (pid != 0 && pid != selfPid) return root;
-        h = GetWindow(root, GW_HWNDNEXT);
-    }
-    return nullptr;
-}
 
 static void SendMouseWheelBestEffort(int delta, bool horizontal) {
     const int scaled = (std::abs(delta) < WHEEL_DELTA) ? (delta * WHEEL_DELTA) : delta;
@@ -85,67 +32,6 @@ static void SendMouseWheelBestEffort(int delta, bool horizontal) {
     in.mi.dwFlags = horizontal ? MOUSEEVENTF_HWHEEL : MOUSEEVENTF_WHEEL;
     in.mi.mouseData = static_cast<DWORD>(scaled);
     SendInput(1, &in, sizeof(in));
-}
-
-static bool FocusWindowAt(int x, int y) {
-    POINT pt{ x, y };
-    HWND hwnd = RootWindowAtSkipSelf(pt);
-    if (!hwnd) return false;
-
-    HWND fg = GetForegroundWindow();
-    const DWORD curTid = GetCurrentThreadId();
-    const DWORD fgTid = fg ? GetWindowThreadProcessId(fg, nullptr) : 0;
-    const DWORD targetTid = GetWindowThreadProcessId(hwnd, nullptr);
-
-    bool attachedFg = false;
-    bool attachedTarget = false;
-
-    if (fgTid != curTid && fgTid != 0) {
-        attachedFg = (AttachThreadInput(curTid, fgTid, TRUE) != 0);
-    }
-    if (targetTid != curTid && targetTid != 0 && targetTid != fgTid) {
-        attachedTarget = (AttachThreadInput(curTid, targetTid, TRUE) != 0);
-    }
-
-    ShowWindow(hwnd, SW_SHOW);
-    if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
-    
-    BringWindowToTop(hwnd);
-    SetForegroundWindow(hwnd);
-    SetActiveWindow(hwnd);
-
-    if (attachedTarget) AttachThreadInput(curTid, targetTid, FALSE);
-    if (attachedFg) AttachThreadInput(curTid, fgTid, FALSE);
-    Sleep(10);
-    return true;
-}
-
-static DWORD MouseDownFlag(int button) {
-    switch (button) {
-    case 1: return MOUSEEVENTF_LEFTDOWN;
-    case 2: return MOUSEEVENTF_RIGHTDOWN;
-    case 3: return MOUSEEVENTF_MIDDLEDOWN;
-    case 4: return MOUSEEVENTF_XDOWN;
-    case 5: return MOUSEEVENTF_XDOWN;
-    default: return 0;
-    }
-}
-
-static DWORD MouseUpFlag(int button) {
-    switch (button) {
-    case 1: return MOUSEEVENTF_LEFTUP;
-    case 2: return MOUSEEVENTF_RIGHTUP;
-    case 3: return MOUSEEVENTF_MIDDLEUP;
-    case 4: return MOUSEEVENTF_XUP;
-    case 5: return MOUSEEVENTF_XUP;
-    default: return 0;
-    }
-}
-
-static DWORD MouseXButtonData(int button) {
-    if (button == 4) return XBUTTON1;
-    if (button == 5) return XBUTTON2;
-    return 0;
 }
 
 static void SendKeyByScanOrVk(uint32_t vk, uint32_t scan, bool extended, bool down) {
@@ -691,8 +577,7 @@ int LuaEngine::L_Playback(lua_State* L) {
         return 1;
     }
 
-    const auto& eventsRef = tmp.Events();
-    std::vector<trc::RawEvent> events(eventsRef.begin(), eventsRef.end());
+    std::vector<trc::RawEvent> events = tmp.EventsCopy();
     const bool started = self->replayer_->Start(std::move(events), false, self->replayer_->Speed());
     lua_pushboolean(L, started ? 1 : 0);
     return 1;
@@ -757,7 +642,7 @@ int LuaEngine::L_WaitUs(lua_State* L) {
 int LuaEngine::L_MouseMove(lua_State* L) {
     const int x = static_cast<int>(luaL_checkinteger(L, 1));
     const int y = static_cast<int>(luaL_checkinteger(L, 2));
-    MoveCursorBestEffort(x, y);
+    input::MoveCursorBestEffort(x, y);
     if (auto* self = Self(L)) {
         self->hasLastMouse_ = true;
         self->lastMouseX_ = x;
@@ -803,7 +688,7 @@ int LuaEngine::L_ActivateWindow(lua_State* L) {
         }
     }
 
-    const bool ok = FocusWindowAt(x, y);
+    const bool ok = input::FocusWindowAt(x, y);
     lua_pushboolean(L, ok ? 1 : 0);
     return 1;
 }
@@ -1260,7 +1145,7 @@ int LuaEngine::L_MouseDown(lua_State* L) {
     const int btn = ParseButton(L, 1);
     int x = 0, y = 0;
     if (LuaTryGetXY(L, 2, 3, &x, &y)) {
-        MoveCursorBestEffort(x, y);
+        input::MoveCursorBestEffort(x, y);
         if (auto* self = Self(L)) {
             self->hasLastMouse_ = true;
             self->lastMouseX_ = x;
@@ -1279,9 +1164,9 @@ int LuaEngine::L_MouseDown(lua_State* L) {
 
     INPUT in{};
     in.type = INPUT_MOUSE;
-    in.mi.dwFlags = MouseDownFlag(btn);
+    in.mi.dwFlags = input::MouseDownFlag(btn);
     if (in.mi.dwFlags == 0) return 0;
-    if (btn == 4 || btn == 5) in.mi.mouseData = MouseXButtonData(btn);
+    if (btn == 4 || btn == 5) in.mi.mouseData = input::MouseXButtonData(btn);
     SendInput(1, &in, sizeof(in));
     return 0;
 }
@@ -1290,7 +1175,7 @@ int LuaEngine::L_MouseUp(lua_State* L) {
     const int btn = ParseButton(L, 1);
     int x = 0, y = 0;
     if (LuaTryGetXY(L, 2, 3, &x, &y)) {
-        MoveCursorBestEffort(x, y);
+        input::MoveCursorBestEffort(x, y);
         if (auto* self = Self(L)) {
             self->hasLastMouse_ = true;
             self->lastMouseX_ = x;
@@ -1309,9 +1194,9 @@ int LuaEngine::L_MouseUp(lua_State* L) {
 
     INPUT in{};
     in.type = INPUT_MOUSE;
-    in.mi.dwFlags = MouseUpFlag(btn);
+    in.mi.dwFlags = input::MouseUpFlag(btn);
     if (in.mi.dwFlags == 0) return 0;
-    if (btn == 4 || btn == 5) in.mi.mouseData = MouseXButtonData(btn);
+    if (btn == 4 || btn == 5) in.mi.mouseData = input::MouseXButtonData(btn);
     SendInput(1, &in, sizeof(in));
     return 0;
 }
@@ -1320,7 +1205,7 @@ int LuaEngine::L_MouseWheel(lua_State* L) {
     const int delta = static_cast<int>(luaL_checkinteger(L, 1));
     int x = 0, y = 0;
     if (LuaTryGetXY(L, 2, 3, &x, &y)) {
-        MoveCursorBestEffort(x, y);
+        input::MoveCursorBestEffort(x, y);
         if (auto* self = Self(L)) {
             self->hasLastMouse_ = true;
             self->lastMouseX_ = x;

@@ -507,9 +507,12 @@ std::wstring ControlGetText(HWND hwnd) {
     if (!hwnd || !IsWindow(hwnd)) return {};
     int len = (int)SendMessageW(hwnd, WM_GETTEXTLENGTH, 0, 0);
     if (len <= 0) return {};
-    std::wstring buf(len + 1, L'\0');
-    SendMessageW(hwnd, WM_GETTEXT, buf.size(), (LPARAM)buf.data());
-    buf.resize(len);
+    // Allocate extra space: some controls (e.g. RichEdit) may report a shorter
+    // length than the actual text. We use the actual return value to trim.
+    std::wstring buf(static_cast<size_t>(len) + 2, L'\0');
+    int got = (int)SendMessageW(hwnd, WM_GETTEXT, (WPARAM)buf.size(), (LPARAM)buf.data());
+    if (got <= 0) return {};
+    buf.resize(static_cast<size_t>(got));
     return buf;
 }
 

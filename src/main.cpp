@@ -182,8 +182,10 @@ static bool SetupChineseFonts(ImGuiIO& io, float baseFontSizePx) {
     // stb_truetype tends to render fonts a bit thin and washed out. This multiplier helps contrast.
     cfg.RasterizerMultiply = 1.2f;
 
-    const ImWchar* ranges = io.Fonts->GetGlyphRangesChineseFull();
+    const ImWchar* ranges = io.Fonts->GetGlyphRangesChineseSimplifiedCommon();
     const std::string pathUtf8 = wideToUtf8(chosen);
+    // Limit texture width to avoid exceeding D3D11 texture size limits on some hardware.
+    io.Fonts->TexDesiredWidth = 4096;
     io.FontDefault = io.Fonts->AddFontFromFileTTF(
         pathUtf8.c_str(),
         std::floor(baseFontSizePx),
@@ -253,6 +255,15 @@ static void ApplyDpiToImGui(float dpiScale) {
 
     if (g_imguiBackendReady) {
         ImGui_ImplDX11_InvalidateDeviceObjects();
+        // Build the font atlas before uploading to GPU.
+        // If atlas build fails (e.g. texture too large), fall back to default font
+        // to avoid a null-pointer crash inside CreateDeviceObjects.
+        if (!io.Fonts->Build()) {
+            io.Fonts->Clear();
+            io.Fonts->AddFontDefault();
+            io.FontGlobalScale = dpiScale;
+            io.Fonts->Build();
+        }
         ImGui_ImplDX11_CreateDeviceObjects();
     }
 

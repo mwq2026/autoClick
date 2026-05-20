@@ -97,8 +97,12 @@ target_compile_definitions(AutoClickerPro PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX U
 add_dependencies(AutoClickerPro acp_generate_icon)
 
 if(MSVC)
-  target_compile_options(AutoClickerPro PRIVATE /W4 /permissive- /utf-8)
-  target_link_options(AutoClickerPro PRIVATE "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'")
+  target_compile_options(AutoClickerPro PRIVATE /W4 /permissive- /utf-8 /Zi /FS)
+  target_link_options(AutoClickerPro PRIVATE
+    "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'"
+    "/MAP"
+    "/DEBUG:FULL"
+  )
 endif()
 
 set_target_properties(AutoClickerPro PROPERTIES WIN32_EXECUTABLE TRUE)

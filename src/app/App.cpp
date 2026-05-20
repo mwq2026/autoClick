@@ -575,21 +575,16 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
 
     const ImVec2 fp = ImGui::GetStyle().FramePadding;
     const float textStartX = itemMin.x + fp.x;
-    // InputTextMultiline internally calls BeginChildEx(label, id, ...) which creates a child
-    // window named "parentName/##luaeditor_XXXXXXXX" (label + underscore + hex ID).
-    // We iterate context windows to find it robustly, matching by suffix.
+
+    // Safely retrieve the scroll position of InputTextMultiline's internal child window.
+    // InputTextEx calls BeginChildEx(label, id, ...) where id == GetID("##luaeditor").
+    // FindWindowByID uses ImGui's internal hash map and is safe within the same frame —
+    // unlike iterating ctx.Windows which can contain stale pointers after window GC.
     float scrollY = 0.0f;
-    ImGuiWindow* editorInnerWin = nullptr;
     {
-        ImGuiContext& ctx = *ImGui::GetCurrentContext();
-        for (int i = 0; i < ctx.Windows.Size; ++i) {
-            ImGuiWindow* w = ctx.Windows[i];
-            if (w && w->Name && strstr(w->Name, "/##luaeditor_")) {
-                editorInnerWin = w;
-                scrollY = w->Scroll.y;
-                break;
-            }
-        }
+        ImGuiID childId = ImGui::GetID("##luaeditor");
+        ImGuiWindow* childWin = ImGui::FindWindowByID(childId);
+        if (childWin) scrollY = childWin->Scroll.y;
     }
     const float textStartY = itemMin.y + fp.y - scrollY;
 
@@ -924,10 +919,14 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
     }
 
     if (highlightLine > 0 && lastScrollToLine && *lastScrollToLine != highlightLine) {
-        if (editorInnerWin) {
-            float targetY = (highlightLine - 1) * lineH;
-            float viewH = editorInnerWin->InnerRect.GetHeight();
-            editorInnerWin->Scroll.y = std::max(0.0f, targetY - viewH * 0.35f);
+        // Safely scroll the InputTextMultiline child window to show the highlighted line.
+        // ImGui::FindWindowByID uses an internal hash map and is safe within the same frame.
+        ImGuiID childId = ImGui::GetID("##luaeditor");
+        ImGuiWindow* childWin = ImGui::FindWindowByID(childId);
+        if (childWin) {
+            const float targetY = (highlightLine - 1) * lineH;
+            const float viewH = childWin->InnerRect.GetHeight();
+            childWin->Scroll.y = std::max(0.0f, targetY - viewH * 0.35f);
         }
         *lastScrollToLine = highlightLine;
     }
@@ -1422,7 +1421,7 @@ void App::DrawSimpleMode() {
         EndGlassCard();
 
         ImGui::Spacing();
-        ImGui::TextColored(ImVec4(0.55f, 0.50f, 0.75f, 0.8f), "事件: %zu", recorder_.Events().size());
+        ImGui::TextColored(ImVec4(0.55f, 0.50f, 0.75f, 0.8f), "事件: %zu", recorder_.EventCount());
         ImGui::TextColored(ImVec4(0.55f, 0.50f, 0.75f, 0.8f), "时长: %.1f 秒", recorder_.TotalDurationMicros() / 1'000'000.0);
 
         // ─── MIDDLE COLUMN: Actions ─────────────────────────────────────
@@ -1439,7 +1438,7 @@ void App::DrawSimpleMode() {
                 if (GlowButton("开始回放 (F10)", ImVec2(-1, btnH), IM_COL32(40, 160, 80, 255), IM_COL32(30, 200, 120, 255)))
                     StartReplay();
                 // Save button — visible when there are recorded events to save
-                if (!recorder_.Events().empty()) {
+                if (recorder_.EventCount() > 0) {
                     ImGui::Spacing();
                     if (GlowButton("保存录制", ImVec2(-1, btnH), IM_COL32(60, 120, 200, 255), IM_COL32(40, 100, 220, 255))) {
                         wchar_t buf[MAX_PATH]{};
@@ -1508,15 +1507,17 @@ void App::DrawSimpleMode() {
             const float listH = ImGui::GetContentRegionAvail().y;
             BeginGlassScrollCard("##event_list_card", "事件列表", ImVec2(-1, listH));
             {
-                if (recorder_.Events().empty()) {
+                // Take a locked snapshot to avoid data races with the drain thread.
+                const auto evSnap = recorder_.EventsCopy();
+                if (evSnap.empty()) {
                     ImGui::Spacing(); ImGui::Spacing();
                     ImGui::TextColored(ImVec4(0.55f, 0.50f, 0.75f, 0.6f), "暂无事件\n\n点击「开始录制」捕获操作\n或「加载文件」打开已有录制");
                 } else {
                     ImGuiListClipper clipper;
-                    clipper.Begin((int)recorder_.Events().size());
+                    clipper.Begin((int)evSnap.size());
                     while (clipper.Step()) {
                         for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
-                            const auto& evt = recorder_.Events()[i];
+                            const auto& evt = evSnap[i];
                             ImGui::TextColored(ImVec4(0.45f, 0.40f, 0.65f, 0.8f), "%06d", i + 1);
                             ImGui::SameLine();
                             ImGui::TextColored(ImVec4(0.82f, 0.80f, 0.92f, 1.0f), "%s", FormatEvent(evt).c_str());
@@ -1524,8 +1525,7 @@ void App::DrawSimpleMode() {
                     }
                     if (recorder_.IsRecording() && ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) ImGui::SetScrollHereY(1.0f);
                 }
-            }
-            EndGlassCard();
+            }            EndGlassCard();
         }
 
         // Track column ratios after user drag
@@ -2826,7 +2826,7 @@ void App::StartRecording() {
     recordStartQpc_ = timing::QpcNow(); overlay_.SetRecording(true); overlay_.SetElapsedMicros(0); overlay_.Show();
 }
 void App::StopRecording() {
-    LOG_INFO("App::StopRecording", "Stopping recording, events=%zu", recorder_.Events().size());
+    LOG_INFO("App::StopRecording", "Stopping recording, events=%zu", recorder_.EventCount());
     hooks_.Uninstall(); recorder_.Stop(); overlay_.SetRecording(false); overlay_.Hide();
 }
 void App::StartReplay() {
@@ -2837,19 +2837,20 @@ void App::StartReplay() {
 void App::StartReplayConfirmed() {
     if (recorder_.IsRecording()) StopRecording();
     // If no events in memory, try loading from file
-    if (recorder_.Events().empty()) {
+    if (recorder_.EventCount() == 0) {
         if (!recorder_.LoadFromFile(Utf8ToWide(trcPath_))) {
             LOG_ERROR("App::StartReplayConfirmed", "No events and failed to load trc file: %s", trcPath_.c_str());
             SetStatusError("回放失败：无事件且无法读取 .trc"); return;
         }
     }
-    if (recorder_.Events().empty()) {
+    auto copy = recorder_.EventsCopy();
+    if (copy.empty()) {
         SetStatusError("回放失败：事件列表为空"); return;
     }
-    const auto& ev = recorder_.Events(); std::vector<trc::RawEvent> copy(ev.begin(), ev.end());
+    const size_t evCount = copy.size();
     replayer_.SetSpeed(speedFactor_);
     if (replayer_.Start(std::move(copy), blockInput_, speedFactor_)) {
-        LOG_INFO("App::StartReplayConfirmed", "Replay started, events=%zu speed=%.1f", ev.size(), speedFactor_);
+        LOG_INFO("App::StartReplayConfirmed", "Replay started, events=%zu speed=%.1f", evCount, speedFactor_);
         SetStatusOk("已开始回放");
     } else {
         LOG_ERROR("App::StartReplayConfirmed", "Replay failed to start");

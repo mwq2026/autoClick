@@ -23,7 +23,11 @@ public:
     bool IsRecording() const;
 
     void Clear();
-    const std::vector<trc::RawEvent>& Events() const;
+    // Returns a locked snapshot of the event list.
+    // Use this instead of a raw reference to avoid data races with the drain thread.
+    std::vector<trc::RawEvent> EventsCopy() const;
+    // Returns the number of recorded events (lock-safe).
+    size_t EventCount() const;
     int64_t TotalDurationMicros() const;
 
     bool SaveToFile(const std::wstring& filename) const;

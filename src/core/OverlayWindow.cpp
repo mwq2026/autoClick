@@ -13,17 +13,20 @@ OverlayWindow::~OverlayWindow() {
 bool OverlayWindow::Create(HINSTANCE hInstance) {
     if (hwnd_) return true;
 
+    static constexpr wchar_t kClassName[] = L"AutoClickerProOverlay";
+    hInstance_ = hInstance;
+
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = &OverlayWindow::WndProc;
     wc.hInstance = hInstance;
-    wc.lpszClassName = L"AutoClickerProOverlay";
+    wc.lpszClassName = kClassName;
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    RegisterClassExW(&wc);
+    RegisterClassExW(&wc);  // Ignore failure — class may already be registered
 
     hwnd_ = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW,
-        wc.lpszClassName,
+        kClassName,
         L"",
         WS_POPUP,
         10, 10, 260, 32,
@@ -39,6 +42,10 @@ void OverlayWindow::Destroy() {
     if (!hwnd_) return;
     DestroyWindow(hwnd_);
     hwnd_ = nullptr;
+    if (hInstance_) {
+        UnregisterClassW(L"AutoClickerProOverlay", hInstance_);
+        hInstance_ = nullptr;
+    }
 }
 
 void OverlayWindow::Show() {

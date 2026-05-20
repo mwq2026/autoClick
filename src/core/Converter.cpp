@@ -117,11 +117,12 @@ bool Converter::TrcToLua(const std::wstring& trcFile, const std::wstring& luaFil
     Recorder rec;
     if (!rec.LoadFromFile(trcFile)) return false;
 
+    const auto allEvents = rec.EventsCopy();
     std::vector<PathPoint> points;
-    points.reserve(rec.Events().size());
+    points.reserve(allEvents.size());
 
     int64_t t = 0;
-    for (const auto& e : rec.Events()) {
+    for (const auto& e : allEvents) {
         t += e.timeDelta;
         if (static_cast<trc::EventType>(e.type) == trc::EventType::MouseMove) {
             points.push_back(PathPoint{ e.x, e.y, t });
@@ -160,7 +161,7 @@ bool Converter::TrcToLuaFull(const std::wstring& trcFile, const std::wstring& lu
     out << "set_speed(1.0)\n";
 
     int64_t carryMicros = 0;
-    for (const auto& e : rec.Events()) {
+    for (const auto& e : rec.EventsCopy()) {
         WriteWaitUs(out, &carryMicros, e.timeDelta);
         WriteEvent(out, e);
     }

@@ -28,6 +28,7 @@ private:
     void Render(HDC hdc);
 
     HWND hwnd_{ nullptr };
+    HINSTANCE hInstance_{ nullptr };
     bool recording_{ false };
     int64_t elapsedMicros_{ 0 };
 };
