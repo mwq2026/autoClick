@@ -35,6 +35,10 @@ public:
 
     void PushRawEvent(const trc::RawEvent& e);
 
+    // Number of events that were dropped because the lock-free ring was full
+    // (drain thread couldn't keep up). Resets to 0 on Clear().
+    uint64_t DroppedCount() const;
+
 private:
     void StartDrainThread();
     void StopDrainThread();
@@ -47,6 +51,7 @@ private:
     std::vector<trc::RawEvent> ring_;
     std::atomic<uint32_t> ringWrite_{ 0 };
     std::atomic<uint32_t> ringRead_{ 0 };
+    std::atomic<uint64_t> dropped_{ 0 };
 
     std::atomic<bool> drainRunning_{ false };
     std::thread drainThread_;

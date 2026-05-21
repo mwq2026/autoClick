@@ -23,6 +23,7 @@ extern "C" {
 #include "core/Logger.h"
 #include "core/Recorder.h"
 #include "core/Replayer.h"
+#include "core/StringUtils.h"
 #include "core/WinAutomation.h"
 
 static void SendMouseWheelBestEffort(int delta, bool horizontal) {
@@ -69,12 +70,7 @@ static void SendTextUtf16(const wchar_t* s, int len) {
 }
 
 static std::wstring Utf8ToWide(const std::string& s) {
-    if (s.empty()) return {};
-    const int len = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
-    std::wstring out;
-    out.resize(static_cast<size_t>(len));
-    MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), out.data(), len);
-    return out;
+    return strutil::Utf8ToWide(s);
 }
 
 static void LuaPushHwnd(lua_State* L, HWND hwnd) {
@@ -1009,10 +1005,32 @@ int LuaEngine::L_ProcessIsRunning(lua_State* L) {
 }
 
 int LuaEngine::L_ProcessWait(lua_State* L) {
+    auto* self = Self(L);
     const uint32_t pid = static_cast<uint32_t>(luaL_checkinteger(L, 1));
     const uint32_t timeoutMs = static_cast<uint32_t>(luaL_checkinteger(L, 2));
-    const bool ok = winauto::ProcessWait(pid, timeoutMs);
-    lua_pushboolean(L, ok ? 1 : 0);
+
+    if (pid == 0) { lua_pushboolean(L, 0); return 1; }
+    HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, pid);
+    if (!h) { lua_pushboolean(L, 0); return 1; }
+
+    // Poll in small slices so the user can stop the script with Ctrl+F12
+    // while waiting on a long-running process.
+    const uint32_t sliceMs = 50;
+    uint32_t waited = 0;
+    bool exited = false;
+    while (waited < timeoutMs) {
+        if (self && self->cancel_.load(std::memory_order_acquire)) break;
+        const uint32_t left = timeoutMs - waited;
+        const uint32_t step = left < sliceMs ? left : sliceMs;
+        const DWORD r = WaitForSingleObject(h, step);
+        if (r == WAIT_OBJECT_0) { exited = true; break; }
+        if (r != WAIT_TIMEOUT) break;
+        waited += step;
+    }
+    CloseHandle(h);
+
+    if (self && self->cancel_.load(std::memory_order_acquire)) luaL_error(L, "cancelled");
+    lua_pushboolean(L, exited ? 1 : 0);
     return 1;
 }
 
@@ -1026,20 +1044,12 @@ int LuaEngine::L_ProcessKill(lua_State* L) {
 
 static bool WideToUtf8(const std::wstring& w, std::string* out) {
     if (!out) return false;
-    out->clear();
-    if (w.empty()) return true;
-    const int len = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    if (len <= 1) return false;
-    out->resize(static_cast<size_t>(len));
-    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, out->data(), len, nullptr, nullptr);
-    out->resize(out->size() - 1);
-    return true;
+    *out = strutil::WideToUtf8(w);
+    return !w.empty();
 }
 
 static std::string WideToUtf8(const std::wstring& w) {
-    std::string out;
-    WideToUtf8(w, &out);
-    return out;
+    return strutil::WideToUtf8(w);
 }
 
 int LuaEngine::L_ClipboardSet(lua_State* L) {
@@ -1449,96 +1459,94 @@ int LuaEngine::L_ClearTargetWindow(lua_State* L) {
 // Spy++ / UI Automation Lua bindings
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Helper: push HWND as lightuserdata or nil
-static void PushHwnd(lua_State* L, HWND h) {
-    if (h) lua_pushlightuserdata(L, (void*)h);
-    else lua_pushnil(L);
-}
-static HWND ToHwnd(lua_State* L, int idx) {
-    return (HWND)lua_touserdata(L, idx);
-}
+// Spy++ extensions use the SAME hwnd-as-integer representation as the rest of
+// the LuaEngine API (see LuaPushHwnd/LuaToHwnd at the top of this file). This
+// makes hwnd values returned by window_find / window_from_point fully
+// interchangeable with control_get_text / button_click / window_parent / etc.
 
 int LuaEngine::L_WindowParent(lua_State* L) {
-    PushHwnd(L, winauto::WindowParent(ToHwnd(L, 1)));
+    HWND h = winauto::WindowParent(LuaToHwnd(L, 1));
+    if (h) LuaPushHwnd(L, h); else lua_pushnil(L);
     return 1;
 }
 int LuaEngine::L_WindowOwner(lua_State* L) {
-    PushHwnd(L, winauto::WindowOwner(ToHwnd(L, 1)));
+    HWND h = winauto::WindowOwner(LuaToHwnd(L, 1));
+    if (h) LuaPushHwnd(L, h); else lua_pushnil(L);
     return 1;
 }
 int LuaEngine::L_WindowChildFirst(lua_State* L) {
-    PushHwnd(L, winauto::WindowChild(ToHwnd(L, 1)));
+    HWND h = winauto::WindowChild(LuaToHwnd(L, 1));
+    if (h) LuaPushHwnd(L, h); else lua_pushnil(L);
     return 1;
 }
 int LuaEngine::L_WindowNextSibling(lua_State* L) {
-    PushHwnd(L, winauto::WindowNextSibling(ToHwnd(L, 1)));
+    HWND h = winauto::WindowNextSibling(LuaToHwnd(L, 1));
+    if (h) LuaPushHwnd(L, h); else lua_pushnil(L);
     return 1;
 }
 int LuaEngine::L_WindowPrevSibling(lua_State* L) {
-    PushHwnd(L, winauto::WindowPrevSibling(ToHwnd(L, 1)));
+    HWND h = winauto::WindowPrevSibling(LuaToHwnd(L, 1));
+    if (h) LuaPushHwnd(L, h); else lua_pushnil(L);
     return 1;
 }
 int LuaEngine::L_WindowChildren(lua_State* L) {
-    HWND hwnd = ToHwnd(L, 1);
+    HWND hwnd = LuaToHwnd(L, 1);
     bool recursive = lua_toboolean(L, 2) != 0;
     auto children = winauto::WindowChildren(hwnd, recursive);
-    lua_createtable(L, (int)children.size(), 0);
-    for (int i = 0; i < (int)children.size(); ++i) {
-        lua_pushlightuserdata(L, (void*)children[i]);
-        lua_rawseti(L, -2, i + 1);
-    }
+    LuaPushHwndTable(L, children);
     return 1;
 }
 int LuaEngine::L_WindowDesktop(lua_State* L) {
-    PushHwnd(L, winauto::WindowDesktop());
+    HWND h = winauto::WindowDesktop();
+    if (h) LuaPushHwnd(L, h); else lua_pushnil(L);
     return 1;
 }
 int LuaEngine::L_WindowStyle(lua_State* L) {
-    lua_pushinteger(L, winauto::WindowStyle(ToHwnd(L, 1)));
+    lua_pushinteger(L, winauto::WindowStyle(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_WindowExStyle(lua_State* L) {
-    lua_pushinteger(L, winauto::WindowExStyle(ToHwnd(L, 1)));
+    lua_pushinteger(L, winauto::WindowExStyle(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_WindowSetStyleLua(lua_State* L) {
-    lua_pushboolean(L, winauto::WindowSetStyle(ToHwnd(L, 1), (uint32_t)luaL_checkinteger(L, 2)));
+    lua_pushboolean(L, winauto::WindowSetStyle(LuaToHwnd(L, 1), (uint32_t)luaL_checkinteger(L, 2)));
     return 1;
 }
 int LuaEngine::L_WindowSetExStyleLua(lua_State* L) {
-    lua_pushboolean(L, winauto::WindowSetExStyle(ToHwnd(L, 1), (uint32_t)luaL_checkinteger(L, 2)));
+    lua_pushboolean(L, winauto::WindowSetExStyle(LuaToHwnd(L, 1), (uint32_t)luaL_checkinteger(L, 2)));
     return 1;
 }
 int LuaEngine::L_WindowIsVisibleLua(lua_State* L) {
-    lua_pushboolean(L, winauto::WindowIsVisible(ToHwnd(L, 1)));
+    lua_pushboolean(L, winauto::WindowIsVisible(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_WindowIsEnabledLua(lua_State* L) {
-    lua_pushboolean(L, winauto::WindowIsEnabled(ToHwnd(L, 1)));
+    lua_pushboolean(L, winauto::WindowIsEnabled(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_WindowIsFocusedLua(lua_State* L) {
-    lua_pushboolean(L, winauto::WindowIsFocused(ToHwnd(L, 1)));
+    lua_pushboolean(L, winauto::WindowIsFocused(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_WindowIsMinimizedLua(lua_State* L) {
-    lua_pushboolean(L, winauto::WindowIsMinimized(ToHwnd(L, 1)));
+    lua_pushboolean(L, winauto::WindowIsMinimized(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_WindowIsMaximizedLua(lua_State* L) {
-    lua_pushboolean(L, winauto::WindowIsMaximized(ToHwnd(L, 1)));
+    lua_pushboolean(L, winauto::WindowIsMaximized(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_WindowThreadIdLua(lua_State* L) {
-    lua_pushinteger(L, winauto::WindowThreadId(ToHwnd(L, 1)));
+    lua_pushinteger(L, winauto::WindowThreadId(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_WindowTextLength(lua_State* L) {
-    lua_pushinteger(L, winauto::WindowTextLength(ToHwnd(L, 1)));
+    lua_pushinteger(L, winauto::WindowTextLength(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_ControlGetText(lua_State* L) {
-    std::wstring t = winauto::ControlGetText(ToHwnd(L, 1));
+    std::wstring t = winauto::ControlGetText(LuaToHwnd(L, 1));
     if (t.empty()) { lua_pushnil(L); return 1; }
     std::string u = WideToUtf8(t);
     lua_pushlstring(L, u.c_str(), u.size());
@@ -1546,19 +1554,19 @@ int LuaEngine::L_ControlGetText(lua_State* L) {
 }
 int LuaEngine::L_ControlSetText(lua_State* L) {
     const char* s = luaL_checkstring(L, 2);
-    lua_pushboolean(L, winauto::ControlSetText(ToHwnd(L, 1), Utf8ToWide(s ? s : "")));
+    lua_pushboolean(L, winauto::ControlSetText(LuaToHwnd(L, 1), Utf8ToWide(s ? s : "")));
     return 1;
 }
 int LuaEngine::L_WindowEnableLua(lua_State* L) {
-    lua_pushboolean(L, winauto::WindowEnable(ToHwnd(L, 1), lua_toboolean(L, 2) != 0));
+    lua_pushboolean(L, winauto::WindowEnable(LuaToHwnd(L, 1), lua_toboolean(L, 2) != 0));
     return 1;
 }
 int LuaEngine::L_WindowSetFocusLua(lua_State* L) {
-    lua_pushboolean(L, winauto::WindowSetFocus(ToHwnd(L, 1)));
+    lua_pushboolean(L, winauto::WindowSetFocus(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_WindowSendMsg(lua_State* L) {
-    HWND h = ToHwnd(L, 1);
+    HWND h = LuaToHwnd(L, 1);
     uint32_t msg = (uint32_t)luaL_checkinteger(L, 2);
     uintptr_t wp = (uintptr_t)luaL_optinteger(L, 3, 0);
     intptr_t lp = (intptr_t)luaL_optinteger(L, 4, 0);
@@ -1566,7 +1574,7 @@ int LuaEngine::L_WindowSendMsg(lua_State* L) {
     return 1;
 }
 int LuaEngine::L_WindowPostMsg(lua_State* L) {
-    HWND h = ToHwnd(L, 1);
+    HWND h = LuaToHwnd(L, 1);
     uint32_t msg = (uint32_t)luaL_checkinteger(L, 2);
     uintptr_t wp = (uintptr_t)luaL_optinteger(L, 3, 0);
     intptr_t lp = (intptr_t)luaL_optinteger(L, 4, 0);
@@ -1574,144 +1582,146 @@ int LuaEngine::L_WindowPostMsg(lua_State* L) {
     return 1;
 }
 int LuaEngine::L_ButtonClickLua(lua_State* L) {
-    lua_pushboolean(L, winauto::ButtonClick(ToHwnd(L, 1)));
+    lua_pushboolean(L, winauto::ButtonClick(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_CheckboxGet(lua_State* L) {
-    lua_pushinteger(L, winauto::CheckboxGetState(ToHwnd(L, 1)));
+    lua_pushinteger(L, winauto::CheckboxGetState(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_CheckboxSet(lua_State* L) {
-    lua_pushboolean(L, winauto::CheckboxSetState(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2)));
+    lua_pushboolean(L, winauto::CheckboxSetState(LuaToHwnd(L, 1), (int)luaL_checkinteger(L, 2)));
     return 1;
 }
 int LuaEngine::L_ComboGetSel(lua_State* L) {
-    lua_pushinteger(L, winauto::ComboboxGetCurSel(ToHwnd(L, 1)));
+    lua_pushinteger(L, winauto::ComboboxGetCurSel(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_ComboSetSel(lua_State* L) {
-    lua_pushboolean(L, winauto::ComboboxSetCurSel(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2)));
+    lua_pushboolean(L, winauto::ComboboxSetCurSel(LuaToHwnd(L, 1), (int)luaL_checkinteger(L, 2)));
     return 1;
 }
 int LuaEngine::L_ComboGetCount(lua_State* L) {
-    lua_pushinteger(L, winauto::ComboboxGetCount(ToHwnd(L, 1)));
+    lua_pushinteger(L, winauto::ComboboxGetCount(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_ComboGetItem(lua_State* L) {
-    std::wstring t = winauto::ComboboxGetItem(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2));
+    std::wstring t = winauto::ComboboxGetItem(LuaToHwnd(L, 1), (int)luaL_checkinteger(L, 2));
     if (t.empty()) { lua_pushnil(L); return 1; }
     std::string u = WideToUtf8(t);
     lua_pushlstring(L, u.c_str(), u.size());
     return 1;
 }
 int LuaEngine::L_ListboxGetSel(lua_State* L) {
-    lua_pushinteger(L, winauto::ListboxGetCurSel(ToHwnd(L, 1)));
+    lua_pushinteger(L, winauto::ListboxGetCurSel(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_ListboxSetSel(lua_State* L) {
-    lua_pushboolean(L, winauto::ListboxSetCurSel(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2)));
+    lua_pushboolean(L, winauto::ListboxSetCurSel(LuaToHwnd(L, 1), (int)luaL_checkinteger(L, 2)));
     return 1;
 }
 int LuaEngine::L_ListboxGetCountLua(lua_State* L) {
-    lua_pushinteger(L, winauto::ListboxGetCount(ToHwnd(L, 1)));
+    lua_pushinteger(L, winauto::ListboxGetCount(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_ListboxGetItemLua(lua_State* L) {
-    std::wstring t = winauto::ListboxGetItem(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2));
+    std::wstring t = winauto::ListboxGetItem(LuaToHwnd(L, 1), (int)luaL_checkinteger(L, 2));
     if (t.empty()) { lua_pushnil(L); return 1; }
     std::string u = WideToUtf8(t);
     lua_pushlstring(L, u.c_str(), u.size());
     return 1;
 }
 int LuaEngine::L_EditGetLineCount(lua_State* L) {
-    lua_pushinteger(L, winauto::EditGetLineCount(ToHwnd(L, 1)));
+    lua_pushinteger(L, winauto::EditGetLineCount(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_EditGetLine(lua_State* L) {
-    std::wstring t = winauto::EditGetLine(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2));
+    std::wstring t = winauto::EditGetLine(LuaToHwnd(L, 1), (int)luaL_checkinteger(L, 2));
     if (t.empty()) { lua_pushnil(L); return 1; }
     std::string u = WideToUtf8(t);
     lua_pushlstring(L, u.c_str(), u.size());
     return 1;
 }
 int LuaEngine::L_EditSetSel(lua_State* L) {
-    lua_pushboolean(L, winauto::EditSetSel(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2), (int)luaL_checkinteger(L, 3)));
+    lua_pushboolean(L, winauto::EditSetSel(LuaToHwnd(L, 1), (int)luaL_checkinteger(L, 2), (int)luaL_checkinteger(L, 3)));
     return 1;
 }
 int LuaEngine::L_EditReplaceSel(lua_State* L) {
     const char* s = luaL_checkstring(L, 2);
-    lua_pushboolean(L, winauto::EditReplaceSel(ToHwnd(L, 1), Utf8ToWide(s ? s : "")));
+    lua_pushboolean(L, winauto::EditReplaceSel(LuaToHwnd(L, 1), Utf8ToWide(s ? s : "")));
     return 1;
 }
 int LuaEngine::L_EditGetSel(lua_State* L) {
     int s = 0, e = 0;
-    winauto::EditGetSel(ToHwnd(L, 1), &s, &e);
+    winauto::EditGetSel(LuaToHwnd(L, 1), &s, &e);
     lua_pushinteger(L, s);
     lua_pushinteger(L, e);
     return 2;
 }
 int LuaEngine::L_ScrollSet(lua_State* L) {
-    lua_pushboolean(L, winauto::ScrollWindow(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2), (int)luaL_checkinteger(L, 3)));
+    lua_pushboolean(L, winauto::ScrollWindow(LuaToHwnd(L, 1), (int)luaL_checkinteger(L, 2), (int)luaL_checkinteger(L, 3)));
     return 1;
 }
 int LuaEngine::L_ScrollGetPos(lua_State* L) {
-    lua_pushinteger(L, winauto::ScrollGetPos(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2)));
+    lua_pushinteger(L, winauto::ScrollGetPos(LuaToHwnd(L, 1), (int)luaL_checkinteger(L, 2)));
     return 1;
 }
 int LuaEngine::L_ScrollGetRange(lua_State* L) {
     int mn = 0, mx = 0;
-    winauto::ScrollGetRange(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2), &mn, &mx);
+    winauto::ScrollGetRange(LuaToHwnd(L, 1), (int)luaL_checkinteger(L, 2), &mn, &mx);
     lua_pushinteger(L, mn);
     lua_pushinteger(L, mx);
     return 2;
 }
 int LuaEngine::L_TabGetSel(lua_State* L) {
-    lua_pushinteger(L, winauto::TabGetCurSel(ToHwnd(L, 1)));
+    lua_pushinteger(L, winauto::TabGetCurSel(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_TabSetSel(lua_State* L) {
-    lua_pushboolean(L, winauto::TabSetCurSel(ToHwnd(L, 1), (int)luaL_checkinteger(L, 2)));
+    lua_pushboolean(L, winauto::TabSetCurSel(LuaToHwnd(L, 1), (int)luaL_checkinteger(L, 2)));
     return 1;
 }
 int LuaEngine::L_TabGetCountLua(lua_State* L) {
-    lua_pushinteger(L, winauto::TabGetCount(ToHwnd(L, 1)));
+    lua_pushinteger(L, winauto::TabGetCount(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_TreeViewGetCountLua(lua_State* L) {
-    lua_pushinteger(L, winauto::TreeViewGetCount(ToHwnd(L, 1)));
+    lua_pushinteger(L, winauto::TreeViewGetCount(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_TreeViewGetSelLua(lua_State* L) {
-    intptr_t h = winauto::TreeViewGetSelection(ToHwnd(L, 1));
+    intptr_t h = winauto::TreeViewGetSelection(LuaToHwnd(L, 1));
     if (h) lua_pushinteger(L, h); else lua_pushnil(L);
     return 1;
 }
 int LuaEngine::L_TreeViewSelectLua(lua_State* L) {
-    lua_pushboolean(L, winauto::TreeViewSelectItem(ToHwnd(L, 1), (intptr_t)luaL_checkinteger(L, 2)));
+    lua_pushboolean(L, winauto::TreeViewSelectItem(LuaToHwnd(L, 1), (intptr_t)luaL_checkinteger(L, 2)));
     return 1;
 }
 int LuaEngine::L_ListViewGetCountLua(lua_State* L) {
-    lua_pushinteger(L, winauto::ListViewGetItemCount(ToHwnd(L, 1)));
+    lua_pushinteger(L, winauto::ListViewGetItemCount(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_ListViewGetSelCountLua(lua_State* L) {
-    lua_pushinteger(L, winauto::ListViewGetSelectedCount(ToHwnd(L, 1)));
+    lua_pushinteger(L, winauto::ListViewGetSelectedCount(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_ListViewNextSelLua(lua_State* L) {
-    int idx = winauto::ListViewGetNextSelected(ToHwnd(L, 1), (int)luaL_optinteger(L, 2, -1));
+    int idx = winauto::ListViewGetNextSelected(LuaToHwnd(L, 1), (int)luaL_optinteger(L, 2, -1));
     if (idx >= 0) lua_pushinteger(L, idx); else lua_pushnil(L);
     return 1;
 }
 int LuaEngine::L_FindChildByClassLua(lua_State* L) {
     const char* cls = luaL_checkstring(L, 2);
     int index = (int)luaL_optinteger(L, 3, 0);
-    PushHwnd(L, winauto::FindChildByClass(ToHwnd(L, 1), Utf8ToWide(cls ? cls : ""), index));
+    HWND h = winauto::FindChildByClass(LuaToHwnd(L, 1), Utf8ToWide(cls ? cls : ""), index);
+    if (h) LuaPushHwnd(L, h); else lua_pushnil(L);
     return 1;
 }
 int LuaEngine::L_FindChildByTextLua(lua_State* L) {
     const char* txt = luaL_checkstring(L, 2);
-    PushHwnd(L, winauto::FindChildByText(ToHwnd(L, 1), Utf8ToWide(txt ? txt : "")));
+    HWND h = winauto::FindChildByText(LuaToHwnd(L, 1), Utf8ToWide(txt ? txt : ""));
+    if (h) LuaPushHwnd(L, h); else lua_pushnil(L);
     return 1;
 }
 int LuaEngine::L_ScreenCapture(lua_State* L) {
@@ -1744,7 +1754,7 @@ int LuaEngine::L_SystemDpi(lua_State* L) {
     return 1;
 }
 int LuaEngine::L_WindowDpiLua(lua_State* L) {
-    lua_pushinteger(L, winauto::GetWindowDpi(ToHwnd(L, 1)));
+    lua_pushinteger(L, winauto::GetWindowDpi(LuaToHwnd(L, 1)));
     return 1;
 }
 int LuaEngine::L_RegRead(lua_State* L) {

@@ -320,6 +320,7 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
             if (hkId == 1) g_app->OnHotkey();
             else if (hkId == 2) g_app->OnHotkeyStartResume();
             else if (hkId == 3) g_app->OnHotkeyPause();
+            else if (hkId == 4) g_app->OnHotkeyToggleRecord();
         }
         return 0;
     case WM_CLOSE:
@@ -374,13 +375,14 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
         return 1;
     }
 
-    ShowWindow(hwnd, SW_SHOWDEFAULT);
-    UpdateWindow(hwnd);
+    // ShowWindow is deferred until after App loads the persisted geometry,
+    // so users don't see a flash at the default position before being moved
+    // to the saved window placement.
 
     RegisterHotKey(hwnd, 1, MOD_CONTROL, VK_F12);
     RegisterHotKey(hwnd, 2, MOD_CONTROL, VK_F10);
     RegisterHotKey(hwnd, 3, MOD_CONTROL, VK_F11);
-
+    RegisterHotKey(hwnd, 4, 0, VK_F9);          // Toggle recording (Simple mode)
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -476,6 +478,13 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
     App app(hInstance, hwnd);
     g_app = &app;
     app.ApplySavedWindowGeometry();
+    // Show window AFTER applying saved geometry to avoid a position flash.
+    // ApplySavedWindowGeometry no-ops when no valid saved rect is present, so
+    // we fall back to SW_SHOWDEFAULT in that case.
+    if (!IsWindowVisible(hwnd)) {
+        ShowWindow(hwnd, SW_SHOWDEFAULT);
+        UpdateWindow(hwnd);
+    }
 
     bool done = false;
     while (!done) {
@@ -511,6 +520,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
     UnregisterHotKey(hwnd, 1);
     UnregisterHotKey(hwnd, 2);
     UnregisterHotKey(hwnd, 3);
+    UnregisterHotKey(hwnd, 4);
 
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();

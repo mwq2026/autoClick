@@ -39,6 +39,7 @@ void Recorder::Clear() {
     }
     ringWrite_.store(0, std::memory_order_release);
     ringRead_.store(0, std::memory_order_release);
+    dropped_.store(0, std::memory_order_release);
 }
 
 std::vector<trc::RawEvent> Recorder::EventsCopy() const {
@@ -93,10 +94,19 @@ void Recorder::PushRawEvent(const trc::RawEvent& e) {
     const uint32_t size = static_cast<uint32_t>(ring_.size());
     const uint32_t write = ringWrite_.load(std::memory_order_relaxed);
     const uint32_t read = ringRead_.load(std::memory_order_acquire);
-    if ((write - read) >= size) return;
+    if ((write - read) >= size) {
+        // Ring buffer is full — drain thread couldn't keep up. Count the drop
+        // so we can surface it to the user instead of silently losing events.
+        dropped_.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
 
     ring_[write % size] = e;
     ringWrite_.store(write + 1, std::memory_order_release);
+}
+
+uint64_t Recorder::DroppedCount() const {
+    return dropped_.load(std::memory_order_acquire);
 }
 
 void Recorder::StartDrainThread() {

@@ -19,6 +19,7 @@
 #include "core/HighResClock.h"
 #include "core/Logger.h"
 #include "core/Scheduler.h"
+#include "core/StringUtils.h"
 
 static bool InputTextMultilineString(const char* label, std::string* str, const ImVec2& size, ImGuiInputTextFlags extraFlags);
 static bool InputTextMultilineStringWithCallback(const char* label, std::string* str, const ImVec2& size, ImGuiInputTextFlags extraFlags, ImGuiInputTextCallback callback, void* userData);
@@ -936,20 +937,8 @@ static void DrawLuaEditorWithLineNumbers(LuaScriptUiState* ui, std::string* text
 
 // ─── String helpers ─────────────────────────────────────────────────────────
 
-static std::wstring Utf8ToWide(const std::string& s) {
-    if (s.empty()) return {};
-    const int len = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
-    std::wstring out; out.resize((size_t)len);
-    MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), out.data(), len);
-    return out;
-}
-static std::string WideToUtf8(const std::wstring& s) {
-    if (s.empty()) return {};
-    const int len = WideCharToMultiByte(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0, nullptr, nullptr);
-    std::string out; out.resize((size_t)len);
-    WideCharToMultiByte(CP_UTF8, 0, s.data(), (int)s.size(), out.data(), len, nullptr, nullptr);
-    return out;
-}
+using strutil::Utf8ToWide;
+using strutil::WideToUtf8;
 
 // ─── ImGui InputText string adapters ────────────────────────────────────────
 
@@ -1184,6 +1173,23 @@ void App::OnHotkeyPause() {
         replayer_.Pause();
         SetStatusWarn("回放已暂停 (Ctrl+F10 继续)");
         LOG_INFO("App::OnHotkeyPause", "Replay paused via Ctrl+F11");
+    }
+}
+
+void App::OnHotkeyToggleRecord() {
+    // F9 toggles recording. Only meaningful when nothing else is running.
+    if (replayer_.IsRunning() || lua_.IsRunning()) {
+        SetStatusWarn("当前正在回放/脚本，无法录制");
+        return;
+    }
+    if (recorder_.IsRecording()) {
+        LOG_INFO("App::OnHotkeyToggleRecord", "Stopping recording via F9");
+        StopRecording();
+        SetStatusOk("已停止录制");
+    } else {
+        LOG_INFO("App::OnHotkeyToggleRecord", "Starting recording via F9");
+        StartRecording();
+        SetStatusOk("已开始录制 (F9 停止)");
     }
 }
 
@@ -1435,7 +1441,7 @@ void App::DrawSimpleMode() {
                 if (GlowButton("开始录制 (F9)", ImVec2(-1, btnH), IM_COL32(200, 50, 80, 255), IM_COL32(220, 80, 60, 255)))
                     StartRecording();
                 ImGui::Spacing();
-                if (GlowButton("开始回放 (F10)", ImVec2(-1, btnH), IM_COL32(40, 160, 80, 255), IM_COL32(30, 200, 120, 255)))
+                if (GlowButton("开始回放 (Ctrl+F10)", ImVec2(-1, btnH), IM_COL32(40, 160, 80, 255), IM_COL32(30, 200, 120, 255)))
                     StartReplay();
                 // Save button — visible when there are recorded events to save
                 if (recorder_.EventCount() > 0) {
@@ -2714,8 +2720,20 @@ void App::DrawLogMode() {
 // ─── Status bar ─────────────────────────────────────────────────────────────
 
 void App::DrawStatusBar() {
+    // Take a snapshot under the lock so the rendering doesn't race with
+    // SetStatus* calls coming from the Scheduler thread.
+    int level = 0;
+    std::string text;
+    int64_t expireMicros = 0;
+    {
+        std::scoped_lock lk(statusMutex_);
+        level = statusLevel_;
+        text = statusText_;
+        expireMicros = statusExpireMicros_;
+    }
+
     const int64_t now = timing::MicrosNow();
-    if (statusText_.empty() || now >= statusExpireMicros_) return;
+    if (text.empty() || now >= expireMicros) return;
     const float s = UiScale();
 
     ImU32 textCol = IM_COL32(180, 170, 210, 200);
@@ -2723,9 +2741,9 @@ void App::DrawStatusBar() {
     ImU32 accentCol = IM_COL32(100, 80, 200, 150);
     const char* icon = "";
 
-    if (statusLevel_ == 1) { textCol = IM_COL32(80, 230, 130, 240); bgCol = IM_COL32(20, 50, 35, 200); accentCol = IM_COL32(60, 200, 100, 200); icon = "OK  "; }
-    if (statusLevel_ == 2) { textCol = IM_COL32(255, 200, 80, 240); bgCol = IM_COL32(50, 40, 20, 200); accentCol = IM_COL32(220, 180, 50, 200); icon = "!!  "; }
-    if (statusLevel_ == 3) { textCol = IM_COL32(255, 100, 100, 240); bgCol = IM_COL32(50, 20, 20, 200); accentCol = IM_COL32(220, 60, 60, 200); icon = "ERR  "; }
+    if (level == 1) { textCol = IM_COL32(80, 230, 130, 240); bgCol = IM_COL32(20, 50, 35, 200); accentCol = IM_COL32(60, 200, 100, 200); icon = "OK  "; }
+    if (level == 2) { textCol = IM_COL32(255, 200, 80, 240); bgCol = IM_COL32(50, 40, 20, 200); accentCol = IM_COL32(220, 180, 50, 200); icon = "!!  "; }
+    if (level == 3) { textCol = IM_COL32(255, 100, 100, 240); bgCol = IM_COL32(50, 20, 20, 200); accentCol = IM_COL32(220, 60, 60, 200); icon = "ERR  "; }
 
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 6.0f * s);
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
@@ -2742,7 +2760,7 @@ void App::DrawStatusBar() {
     ImGui::SetCursorPosX(12.0f * s);
 
     char fullText[512];
-    snprintf(fullText, sizeof(fullText), "%s%s", icon, statusText_.c_str());
+    snprintf(fullText, sizeof(fullText), "%s%s", icon, text.c_str());
     dl->AddText(ImVec2(wp.x + 12.0f * s, wp.y + (ws.y - ImGui::GetTextLineHeight()) * 0.5f), textCol, fullText);
     ImGui::Dummy(ImVec2(0, 0)); // keep child alive
 
@@ -2813,10 +2831,10 @@ void App::DrawExitConfirmModal() {
     ImGui::PopStyleColor();
 }
 
-void App::SetStatusInfo(const std::string& text)  { statusLevel_ = 0; statusText_ = text; statusExpireMicros_ = timing::MicrosNow() + 3'000'000; }
-void App::SetStatusOk(const std::string& text)    { statusLevel_ = 1; statusText_ = text; statusExpireMicros_ = timing::MicrosNow() + 3'000'000; }
-void App::SetStatusWarn(const std::string& text)   { statusLevel_ = 2; statusText_ = text; statusExpireMicros_ = timing::MicrosNow() + 6'000'000; }
-void App::SetStatusError(const std::string& text)  { statusLevel_ = 3; statusText_ = text; statusExpireMicros_ = timing::MicrosNow() + 8'000'000; }
+void App::SetStatusInfo(const std::string& text)  { std::scoped_lock lk(statusMutex_); statusLevel_ = 0; statusText_ = text; statusExpireMicros_ = timing::MicrosNow() + 3'000'000; }
+void App::SetStatusOk(const std::string& text)    { std::scoped_lock lk(statusMutex_); statusLevel_ = 1; statusText_ = text; statusExpireMicros_ = timing::MicrosNow() + 3'000'000; }
+void App::SetStatusWarn(const std::string& text)   { std::scoped_lock lk(statusMutex_); statusLevel_ = 2; statusText_ = text; statusExpireMicros_ = timing::MicrosNow() + 6'000'000; }
+void App::SetStatusError(const std::string& text)  { std::scoped_lock lk(statusMutex_); statusLevel_ = 3; statusText_ = text; statusExpireMicros_ = timing::MicrosNow() + 8'000'000; }
 
 // ─── Recording / Replay ─────────────────────────────────────────────────────
 
@@ -2828,6 +2846,15 @@ void App::StartRecording() {
 void App::StopRecording() {
     LOG_INFO("App::StopRecording", "Stopping recording, events=%zu", recorder_.EventCount());
     hooks_.Uninstall(); recorder_.Stop(); overlay_.SetRecording(false); overlay_.Hide();
+    const uint64_t dropped = recorder_.DroppedCount();
+    if (dropped > 0) {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "录制完成，但有 %llu 个事件因缓冲已满被丢弃",
+            (unsigned long long)dropped);
+        LOG_WARN("App::StopRecording", "%llu events were dropped during recording",
+            (unsigned long long)dropped);
+        SetStatusWarn(buf);
+    }
 }
 void App::StartReplay() {
     LOG_INFO("App::StartReplay", "Replay requested, blockInput=%d", blockInput_ ? 1 : 0);

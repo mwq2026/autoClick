@@ -902,7 +902,7 @@ bool FileExists(const std::wstring& path) {
 
 bool DirExists(const std::wstring& path) {
     DWORD attr = GetFileAttributesW(path.c_str());
-    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY);
+    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY) != 0;
 }
 
 bool FileDelete(const std::wstring& path) {

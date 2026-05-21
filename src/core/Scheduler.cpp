@@ -246,9 +246,29 @@ void Scheduler::ThreadMain() {
                     if ((int)mt.history.size() > 20) mt.history.erase(mt.history.begin());
                     if (!rec.success) {
                         mt.failCount++;
-                        mt.status = TaskStatus::Failed;
-                    } else if (!mt.finished) {
-                        mt.status = TaskStatus::Waiting;
+                        // Retry handling: if retryCount > 0 and we still have
+                        // remaining attempts in this cycle, schedule a retry.
+                        // Initialize retryRemaining at the start of a fresh cycle
+                        // (i.e. when a non-retry attempt fails).
+                        if (!mt.inRetry) mt.retryRemaining = mt.retryCount;
+                        if (mt.retryRemaining > 0) {
+                            mt.retryRemaining--;
+                            mt.inRetry = true;
+                            mt.finished = false;
+                            mt.nextRunTime = NowEpochSeconds() + std::max(1, mt.retryDelaySec);
+                            mt.status = TaskStatus::Waiting;
+                            LOG_INFO("Scheduler::Retry",
+                                "Task id=%d will retry in %ds (remaining=%d)",
+                                mt.id, mt.retryDelaySec, mt.retryRemaining);
+                        } else {
+                            mt.inRetry = false;
+                            mt.status = TaskStatus::Failed;
+                        }
+                    } else {
+                        // Success — clear retry state
+                        mt.inRetry = false;
+                        mt.retryRemaining = 0;
+                        if (!mt.finished) mt.status = TaskStatus::Waiting;
                     }
                     break;
                 }

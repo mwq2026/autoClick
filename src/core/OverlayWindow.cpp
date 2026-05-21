@@ -110,6 +110,8 @@ void OverlayWindow::Render(HDC hdc) {
     FillRect(hdc, &rc, bg);
     DeleteObject(bg);
 
+    if (!recording_) return;  // when not recording, leave just the color-key (transparent)
+
     const int pad = 6;
     const int dot = 10;
     const int cy = (rc.bottom - rc.top) / 2;
@@ -127,11 +129,7 @@ void OverlayWindow::Render(HDC hdc) {
 
     const double seconds = static_cast<double>(elapsedMicros_) / 1'000'000.0;
     wchar_t buf[128]{};
-    if (recording_) {
-        swprintf_s(buf, L"Recording...  %.3fs", seconds);
-    } else {
-        swprintf_s(buf, L"");
-    }
+    swprintf_s(buf, L"Recording...  %.3fs", seconds);
 
     RECT textRc = rc;
     textRc.left = dotX + dot + pad;

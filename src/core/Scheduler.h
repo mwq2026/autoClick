@@ -81,6 +81,10 @@ struct ScheduledTask {
 
     // History (last N runs)
     std::vector<TaskRunRecord> history;
+
+    // Internal retry state (not persisted; reset on Scheduler reload)
+    int         retryRemaining{ 0 };  // remaining retries for the current cycle
+    bool        inRetry{ false };     // currently scheduled as a retry attempt
 };
 
 class Scheduler {

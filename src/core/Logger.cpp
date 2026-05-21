@@ -3,7 +3,6 @@
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
-#include <fstream>
 #include <windows.h>
 
 Logger& Logger::Instance() {
@@ -27,8 +26,8 @@ LogLevel Logger::GetLevel() const {
 void Logger::SetMaxEntries(int max) {
     std::scoped_lock lock(mutex_);
     maxEntries_ = max;
-    if (maxEntries_ > 0 && (int)entries_.size() > maxEntries_) {
-        entries_.erase(entries_.begin(), entries_.begin() + ((int)entries_.size() - maxEntries_));
+    while (maxEntries_ > 0 && (int)entries_.size() > maxEntries_) {
+        entries_.pop_front();
     }
 }
 
@@ -39,8 +38,15 @@ int Logger::GetMaxEntries() const {
 
 void Logger::SetFileOutput(bool enabled, const std::string& path) {
     std::scoped_lock lock(mutex_);
+    const bool pathChanged = (!path.empty() && path != filePath_);
+    if (pathChanged) filePath_ = path;
     fileOutput_ = enabled;
-    if (!path.empty()) filePath_ = path;
+    if (enabled) {
+        if (pathChanged && file_.is_open()) file_.close();
+        if (!file_.is_open()) OpenLogFileLocked();
+    } else if (file_.is_open()) {
+        file_.close();
+    }
 }
 
 bool Logger::IsFileOutputEnabled() const {
@@ -72,7 +78,7 @@ void Logger::Log(LogLevel level, const char* source, const char* fmt, ...) {
     if (level < level_) return;
     entries_.push_back(entry);
     if (maxEntries_ > 0 && (int)entries_.size() > maxEntries_) {
-        entries_.erase(entries_.begin());
+        entries_.pop_front();
     }
     if (fileOutput_) WriteToFile(entry);
 }
@@ -91,7 +97,7 @@ void Logger::LogWithStack(LogLevel level, const char* source, const char* messag
     if (level < level_) return;
     entries_.push_back(entry);
     if (maxEntries_ > 0 && (int)entries_.size() > maxEntries_) {
-        entries_.erase(entries_.begin());
+        entries_.pop_front();
     }
     if (fileOutput_) WriteToFile(entry);
 }
@@ -103,7 +109,7 @@ void Logger::Clear() {
 
 std::vector<LogEntry> Logger::GetEntries() const {
     std::scoped_lock lock(mutex_);
-    return entries_;
+    return std::vector<LogEntry>(entries_.begin(), entries_.end());
 }
 
 std::vector<LogEntry> Logger::GetEntries(LogLevel minLevel) const {
@@ -144,15 +150,22 @@ std::string Logger::FormatTimestamp(int64_t ms) {
 }
 
 void Logger::WriteToFile(const LogEntry& entry) {
-    std::ofstream out(filePath_, std::ios::app);
-    if (!out) return;
-    out << FormatTimestamp(entry.timestampMs)
+    if (!file_.is_open()) {
+        OpenLogFileLocked();
+        if (!file_.is_open()) return;
+    }
+    file_ << FormatTimestamp(entry.timestampMs)
         << " [" << LevelName(entry.level) << "]"
         << " [T:" << entry.threadId << "]"
         << " [" << entry.source << "] "
         << entry.message;
     if (!entry.stackTrace.empty()) {
-        out << "\n  Stack: " << entry.stackTrace;
+        file_ << "\n  Stack: " << entry.stackTrace;
     }
-    out << "\n";
+    file_ << "\n";
+    file_.flush();  // ensure log lines hit disk even on crash
+}
+
+void Logger::OpenLogFileLocked() {
+    file_.open(filePath_, std::ios::app);
 }

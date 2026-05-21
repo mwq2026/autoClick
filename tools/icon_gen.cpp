@@ -148,6 +148,7 @@ int main(int argc,char** argv){
     }
     for(int i=0;i<N;++i)
         out.write((const char*)imgs[i].d.data(),(std::streamsize)imgs[i].d.size());
+    const bool ok = out.good();
     out.close();
-    return 0;
+    return ok ? 0 : 4;
 }

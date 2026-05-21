@@ -69,7 +69,10 @@ inline DWORD MouseXButtonData(int button) {
 // Returns true if a target window was found and activated.
 inline bool FocusWindowAt(int x, int y) {
     POINT pt{ x, y };
-    // Find root window at point, skipping our own process
+    // Find root window at point, skipping our own process. We must keep
+    // iterating until we find a root window that ACTUALLY contains pt;
+    // GetWindow(GW_HWNDNEXT) walks Z-order and may return a window in a
+    // completely different region.
     HWND h = WindowFromPoint(pt);
     const DWORD selfPid = GetCurrentProcessId();
     HWND hwnd = nullptr;
@@ -77,11 +80,13 @@ inline bool FocusWindowAt(int x, int y) {
         HWND root = GetAncestor(h, GA_ROOT);
         if (!root) break;
         RECT rc{};
-        if (GetWindowRect(root, &rc) && PtInRect(&rc, pt)) {
-            DWORD pid = 0;
-            GetWindowThreadProcessId(root, &pid);
-            if (pid != 0 && pid != selfPid) { hwnd = root; break; }
+        if (!GetWindowRect(root, &rc) || PtInRect(&rc, pt) == FALSE) {
+            h = GetWindow(root, GW_HWNDNEXT);
+            continue;
         }
+        DWORD pid = 0;
+        GetWindowThreadProcessId(root, &pid);
+        if (pid != 0 && pid != selfPid) { hwnd = root; break; }
         h = GetWindow(root, GW_HWNDNEXT);
     }
     if (!hwnd) return false;

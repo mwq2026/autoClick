@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <vector>
 #include <windows.h>
@@ -52,6 +53,7 @@ public:
     void OnHotkey();
     void OnHotkeyStartResume();
     void OnHotkeyPause();
+    void OnHotkeyToggleRecord();
     void RequestExit();
     bool ShouldExit() const;
 
@@ -65,7 +67,6 @@ private:
     void DrawStatusBar();
     void DrawBlockInputConfirmModal();
     void DrawExitConfirmModal();
-    void DrawAnimatedCursor(ImVec2 center, float radius, float time);
     void UpdateTaskbarIcon();
 
     // Scheduler
@@ -129,9 +130,11 @@ private:
 
     bool exportFull_{ true };
 
+    // Status text — modified from any thread (including Scheduler), so guarded.
     int statusLevel_{ 0 };
     std::string statusText_;
     int64_t statusExpireMicros_{ 0 };
+    mutable std::mutex statusMutex_;
 
     bool blockInputConfirmOpen_{ false };
     bool pendingStartReplay_{ false };

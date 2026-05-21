@@ -59,7 +59,7 @@ bool Replayer::Start(std::vector<trc::RawEvent> events, bool blockInput, double 
     if (worker_.joinable()) worker_.join();
     blockInputState_.store(0, std::memory_order_release);
 
-    speedFactor = std::clamp(speedFactor, 0.5, 10.0);
+    speedFactor = std::clamp(speedFactor, 0.1, 10.0);
     speedFactor_.store(speedFactor, std::memory_order_release);
 
     stop_.store(false, std::memory_order_release);
@@ -111,7 +111,7 @@ int Replayer::BlockInputState() const {
 }
 
 void Replayer::SetSpeed(double speedFactor) {
-    speedFactor_.store(std::clamp(speedFactor, 0.5, 10.0), std::memory_order_release);
+    speedFactor_.store(std::clamp(speedFactor, 0.1, 10.0), std::memory_order_release);
 }
 
 double Replayer::Speed() const {
@@ -183,6 +183,10 @@ void Replayer::InjectEvent(const trc::RawEvent& e) {
     if (type == trc::EventType::Wheel) {
         input::MoveCursorBestEffort(e.x, e.y);
         input::FocusWindowAt(e.x, e.y);
+        // Bit 30 = horizontal wheel flag (set by Hooks::OnMouse for WM_MOUSEHWHEEL).
+        // Pre-v1 .trc files stored a 16-bit signed delta in the low 16 bits with
+        // unrelated noise in the high 16 bits; treat that pattern as legacy
+        // (vertical) wheel for backwards compat.
         bool horizontal = (e.data & (1 << 30)) != 0;
         if ((static_cast<uint32_t>(e.data) & 0xFFFF0000u) == 0xFFFF0000u) horizontal = false;
         const int16_t delta16 = static_cast<int16_t>(e.data & 0xFFFF);

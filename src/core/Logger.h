@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
+#include <fstream>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -54,13 +56,15 @@ private:
     Logger& operator=(const Logger&) = delete;
 
     void WriteToFile(const LogEntry& entry);
+    void OpenLogFileLocked();   // (re)open file_ based on filePath_; must be called under mutex_
 
     mutable std::mutex mutex_;
-    std::vector<LogEntry> entries_;
+    std::deque<LogEntry> entries_;
     LogLevel level_{ LogLevel::Info };
     int maxEntries_{ 10000 };
     bool fileOutput_{ false };
     std::string filePath_{ "autoclicker.log" };
+    std::ofstream file_;            // kept open while fileOutput_ is true
 };
 
 // Convenience macros
