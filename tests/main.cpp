@@ -225,9 +225,10 @@ static void TestScrollAlgorithmTerminates() {
     // All steps must sum to the original delta
     int deltas[] = { 1, -1, 2, -2, 50, -50, 120, -120, 240, -240, 1000, -1000, 2400, -2400 };
     for (int d : deltas) {
-        assert(simulate(d) == d);
+        const int got = simulate(d);
+        if (got != d) std::abort();
     }
-    assert(simulate(0) == 0);
+    if (simulate(0) != 0) std::abort();
 }
 
 int main() {
